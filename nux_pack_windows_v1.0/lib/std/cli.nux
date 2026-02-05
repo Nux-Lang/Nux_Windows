@@ -1,0 +1,198 @@
+# Nux CLI Library
+# Command-line interface utilities
+
+import "std.collections";
+
+class ArgumentParser {
+    var program_name;
+    var description;
+    var arguments;
+    var flags;
+    var parsed_args;
+    
+    func init(prog_name, desc) {
+        this.program_name = prog_name;
+        this.description = desc;
+        
+        this.arguments = new List();
+        this.arguments.init();
+        
+        this.flags = new Map();
+        this.flags.init();
+        
+        this.parsed_args = new Map();
+        this.parsed_args.init();
+    }
+    
+    func add_argument(name, help_text, required) {
+        var arg = new Map();
+        arg.init();
+        arg.put("name", name);
+        arg.put("help", help_text);
+        arg.put("required", required);
+        
+        this.arguments.append(arg);
+    }
+    
+    func add_flag(short_name, long_name, help_text) {
+        var flag = new Map();
+        flag.init();
+        flag.put("short", short_name);
+        flag.put("long", long_name);
+        flag.put("help", help_text);
+        
+        this.flags.put(long_name, flag);
+    }
+    
+    func parse() {
+        var argc_val = argc();
+        
+        var i = 1;
+        for (i = 1; i < argc_val; i = i + 1) {
+            var arg = argv(i);
+            
+            # Check if it's a flag
+            # ... (implementation)
+        }
+        
+        return this.parsed_args;
+    }
+    
+    func print_help() {
+        println("Usage: ");
+        println(this.program_name);
+        println(" [OPTIONS]");
+        println("");
+        println(this.description);
+        println("");
+        println("Arguments:");
+        
+        var i = 0;
+        for (i = 0; i < this.arguments.length(); i = i + 1) {
+            var arg = this.arguments.get(i);
+            println("  ");
+            println(arg.get("name"));
+            println("    ");
+            println(arg.get("help"));
+        }
+    }
+}
+
+class ProgressBar {
+    var total;
+    var current;
+    var width;
+    
+    func init(total_items, bar_width) {
+        this.total = total_items;
+        this.current = 0;
+        this.width = bar_width;
+    }
+    
+    func update(value) {
+        this.current = value;
+        this.render();
+    }
+    
+    func increment() {
+        this.current = this.current + 1;
+        this.render();
+    }
+    
+    func render() {
+        var percent = this.current * 100 / this.total;
+        var filled = this.current * this.width / this.total;
+        
+        print("[");
+        
+        var i = 0;
+        for (i = 0; i < this.width; i = i + 1) {
+            if (i < filled) {
+                print("=");
+            }
+            if (i >= filled) {
+                print(" ");
+            }
+        }
+        
+        print("] ");
+        print(percent);
+        println("%");
+    }
+}
+
+class Table {
+    var headers;
+    var rows;
+    var column_widths;
+    
+    func init(header_list) {
+        this.headers = header_list;
+        this.rows = new List();
+        this.rows.init();
+        
+        this.column_widths = new List();
+        this.column_widths.init();
+    }
+    
+    func add_row(row) {
+        this.rows.append(row);
+    }
+    
+    func print_table() {
+        # Calculate column widths
+        # ... (implementation)
+        
+        # Print headers
+        var i = 0;
+        for (i = 0; i < this.headers.length(); i = i + 1) {
+            print("| ");
+            print(this.headers.get(i));
+            print(" ");
+        }
+        println("|");
+        
+        # Print separator
+        for (i = 0; i < this.headers.length(); i = i + 1) {
+            print("|---");
+        }
+        println("|");
+        
+        # Print rows
+        var j = 0;
+        for (j = 0; j < this.rows.length(); j = j + 1) {
+            var row = this.rows.get(j);
+            for (i = 0; i < row.length(); i = i + 1) {
+                print("| ");
+                print(row.get(i));
+                print(" ");
+            }
+            println("|");
+        }
+    }
+}
+
+func prompt(message) {
+    print(message);
+    print(": ");
+    return input();
+}
+
+func confirm(message) {
+    var response = prompt(message + " (y/n)");
+    return response == "y";
+}
+
+func select_from_list(message, options) {
+    println(message);
+    
+    var i = 0;
+    for (i = 0; i < options.length(); i = i + 1) {
+        print(i + 1);
+        print(". ");
+        println(options.get(i));
+    }
+    
+    var choice = prompt("Select option");
+    return choice - 1;
+}

@@ -1,0 +1,177 @@
+# Nux Web Framework
+# HTTP server and web application framework
+
+import "std.network";
+import "std.collections";
+
+class HTTPRequest {
+    var method;
+    var path;
+    var headers;
+    var body;
+    var params;
+    
+    func init() {
+        this.headers = new Map();
+        this.headers.init();
+        this.params = new Map();
+        this.params.init();
+    }
+    
+    func parse(raw_request) {
+        # Parse HTTP request
+        # GET /path HTTP/1.1
+        # ... (implementation)
+    }
+}
+
+class HTTPResponse {
+    var status_code;
+    var headers;
+    var body;
+    
+    func init() {
+        this.status_code = 200;
+        this.headers = new Map();
+        this.headers.init();
+    }
+    
+    func set_header(key, value) {
+        this.headers.put(key, value);
+    }
+    
+    func send(socket_id) {
+        var response = mem_alloc_aligned(4096, 8);
+        # Build HTTP response
+        # ... (implementation)
+        
+        net_send(socket_id, response);
+    }
+}
+
+class Router {
+    var routes;
+    
+    func init() {
+        this.routes = new Map();
+        this.routes.init();
+    }
+    
+    func get(path, handler) {
+        var key = "GET:" + path;
+        this.routes.put(key, handler);
+    }
+    
+    func post(path, handler) {
+        var key = "POST:" + path;
+        this.routes.put(key, handler);
+    }
+    
+    func route(request) {
+        var key = request.method + ":" + request.path;
+        var handler = this.routes.get(key);
+        
+        if (handler != 0) {
+            return handler(request);
+        }
+        
+        var response = new HTTPResponse();
+        response.status_code = 404;
+        response.body = "Not Found";
+        return response;
+    }
+}
+
+class WebServer {
+    var router;
+    var port;
+    var socket_id;
+    
+    func init(p) {
+        this.port = p;
+        this.router = new Router();
+        this.router.init();
+    }
+    
+    func listen() {
+        this.socket_id = net_listen(this.port);
+        
+        println("Server listening on port ");
+        println(this.port);
+        
+        for (;;) {
+            var client_socket = net_accept(this.socket_id);
+            this.handle_client(client_socket);
+        }
+    }
+    
+    func handle_client(client_socket) {
+        var raw_request = net_recv(client_socket);
+        
+        var request = new HTTPRequest();
+        request.parse(raw_request);
+        
+        var response = this.router.route(request);
+        response.send(client_socket);
+        
+        net_close(client_socket);
+    }
+}
+
+# Middleware support
+class Middleware {
+    var handler;
+    var next;
+    
+    func init(h) {
+        this.handler = h;
+    }
+    
+    func process(request, response) {
+        this.handler(request, response);
+        
+        if (this.next != 0) {
+            this.next.process(request, response);
+        }
+    }
+}
+
+# Session management
+class SessionManager {
+    var sessions;
+    
+    func init() {
+        this.sessions = new Map();
+        this.sessions.init();
+    }
+    
+    func create_session() {
+        var session_id = uuid();
+        var session = new Map();
+        session.init();
+        
+        this.sessions.put(session_id, session);
+        return session_id;
+    }
+    
+    func get_session(session_id) {
+        return this.sessions.get(session_id);
+    }
+}
+
+# Template engine
+class TemplateEngine {
+    var templates;
+    
+    func init() {
+        this.templates = new Map();
+        this.templates.init();
+    }
+    
+    func render(template_name, context) {
+        var template = this.templates.get(template_name);
+        # Replace {{variable}} with context values
+        # ... (implementation)
+        return template;
+    }
+}

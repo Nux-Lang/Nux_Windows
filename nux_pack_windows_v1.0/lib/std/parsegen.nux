@@ -1,0 +1,196 @@
+# Nux Parser Generator Library
+# ANTLR-style parser generation
+
+import "std.compiler";
+import "std.collections";
+
+class Grammar {
+    var name;
+    var rules;
+    var tokens;
+    var start_rule;
+    
+    func init(grammar_name) {
+        this.name = grammar_name;
+        this.rules = new Map();
+        this.rules.init();
+        
+        this.tokens = new List();
+        this.tokens.init();
+    }
+    
+    func add_token(name, pattern) {
+        var token = new Map();
+        token.init();
+        token.put("name", name);
+        token.put("pattern", pattern);
+        
+        this.tokens.append(token);
+    }
+    
+    func add_rule(name, production) {
+        this.rules.put(name, production);
+    }
+    
+    func set_start_rule(rule_name) {
+        this.start_rule = rule_name;
+    }
+    
+    func generate_parser() {
+        var parser = new GeneratedParser();
+        parser.init(this);
+        return parser;
+    }
+}
+
+class Production {
+    var alternatives;
+    
+    func init() {
+        this.alternatives = new List();
+        this.alternatives.init();
+    }
+    
+    func add_alternative(symbols) {
+        this.alternatives.append(symbols);
+    }
+}
+
+class GeneratedParser {
+    var grammar;
+    var lexer;
+    var current_token;
+    var lookahead;
+    
+    func init(g) {
+        this.grammar = g;
+        this.lexer = new GeneratedLexer();
+        this.lexer.init(g.tokens);
+    }
+    
+    func parse(input) {
+        this.lexer.set_input(input);
+        this.current_token = this.lexer.next_token();
+        
+        return this.parse_rule(this.grammar.start_rule);
+    }
+    
+    func parse_rule(rule_name) {
+        var production = this.grammar.rules.get(rule_name);
+        
+        var node = new ASTNode();
+        node.init(rule_name);
+        
+        # Try each alternative
+        # ... (implementation)
+        
+        return node;
+    }
+    
+    func match(token_type) {
+        if (this.current_token.type == token_type) {
+            var token = this.current_token;
+            this.current_token = this.lexer.next_token();
+            return token;
+        }
+        
+        # Parse error
+        return 0;
+    }
+}
+
+class GeneratedLexer {
+    var tokens;
+    var input;
+    var position;
+    var length;
+    
+    func init(token_defs) {
+        this.tokens = token_defs;
+        this.position = 0;
+    }
+    
+    func set_input(text) {
+        this.input = text;
+        this.length = strlen(text);
+        this.position = 0;
+    }
+    
+    func next_token() {
+        # Skip whitespace
+        for (;;) {
+            if (this.position >= this.length) {
+                break;
+            }
+            
+            var ch = mem_read8(this.input + this.position);
+            if (ch != 32) {
+                if (ch != 9) {
+                    if (ch != 10) {
+                        break;
+                    }
+                }
+            }
+            
+            this.position = this.position + 1;
+        }
+        
+        if (this.position >= this.length) {
+            return this.create_token("EOF", "");
+        }
+        
+        # Try to match each token pattern
+        var i = 0;
+        for (i = 0; i < this.tokens.length(); i = i + 1) {
+            var token_def = this.tokens.get(i);
+            var match = this.try_match(token_def.get("pattern"));
+            
+            if (match != 0) {
+                return this.create_token(token_def.get("name"), match);
+            }
+        }
+        
+        # No match - error
+        return 0;
+    }
+    
+    func try_match(pattern) {
+        # Simple pattern matching
+        # ... (regex-like implementation)
+        return 0;
+    }
+    
+    func create_token(type, value) {
+        var token = new Map();
+        token.init();
+        token.put("type", type);
+        token.put("value", value);
+        token.put("position", this.position);
+        
+        return token;
+    }
+}
+
+# Example: Create a simple expression grammar
+func create_expression_grammar() {
+    var grammar = new Grammar();
+    grammar.init("Expression");
+    
+    # Tokens
+    grammar.add_token("NUMBER", "[0-9]+");
+    grammar.add_token("PLUS", "\\+");
+    grammar.add_token("MINUS", "-");
+    grammar.add_token("STAR", "\\*");
+    grammar.add_token("SLASH", "/");
+    grammar.add_token("LPAREN", "\\(");
+    grammar.add_token("RPAREN", "\\)");
+    
+    # Rules
+    var expr_prod = new Production();
+    expr_prod.init();
+    grammar.add_rule("expr", expr_prod);
+    
+    grammar.set_start_rule("expr");
+    
+    return grammar;
+}

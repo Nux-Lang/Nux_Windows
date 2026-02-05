@@ -1,0 +1,235 @@
+# Nux Network Stack Library
+# TCP/IP protocol implementation
+
+# Ethernet frame
+class EthernetFrame {
+    var dest_mac;
+    var src_mac;
+    var ethertype;
+    var payload;
+    var payload_len;
+    
+    func init() {
+        this.dest_mac = mem_alloc_aligned(6, 1);
+        this.src_mac = mem_alloc_aligned(6, 1);
+    }
+    
+    func parse(buffer) {
+        # Copy MAC addresses
+        var i = 0;
+        for (i = 0; i < 6; i = i + 1) {
+            mem_write8(this.dest_mac + i, mem_read8(buffer + i));
+            mem_write8(this.src_mac + i, mem_read8(buffer + 6 + i));
+        }
+        
+        this.ethertype = mem_read16(buffer + 12);
+        this.payload = buffer + 14;
+        this.payload_len = 0;
+    }
+    
+    func send(interface) {
+        asm {
+            interface
+            this.dest_mac
+            this.src_mac
+            this.ethertype
+            this.payload
+            this.payload_len
+            OP_ETH_SEND
+        }
+    }
+}
+
+# IP packet
+class IPv4Packet {
+    var version;
+    var ihl;
+    var tos;
+    var total_length;
+    var identification;
+    var flags;
+    var fragment_offset;
+    var ttl;
+    var protocol;
+    var checksum;
+    var src_ip;
+    var dest_ip;
+    var payload;
+    
+    func init() {
+        this.version = 4;
+        this.ihl = 5;
+        this.ttl = 64;
+    }
+    
+    func parse(buffer) {
+        var ver_ihl = mem_read8(buffer);
+        this.version = (ver_ihl >> 4) & 0x0F;
+        this.ihl = ver_ihl & 0x0F;
+        
+        this.tos = mem_read8(buffer + 1);
+        this.total_length = mem_read16(buffer + 2);
+        this.identification = mem_read16(buffer + 4);
+        
+        var flags_frag = mem_read16(buffer + 6);
+        this.flags = (flags_frag >> 13) & 0x07;
+        this.fragment_offset = flags_frag & 0x1FFF;
+        
+        this.ttl = mem_read8(buffer + 8);
+        this.protocol = mem_read8(buffer + 9);
+        this.checksum = mem_read16(buffer + 10);
+        
+        this.src_ip = mem_read32(buffer + 12);
+        this.dest_ip = mem_read32(buffer + 16);
+        
+        this.payload = buffer + (this.ihl * 4);
+    }
+    
+    func build(buffer) {
+        mem_write8(buffer, (this.version << 4) | this.ihl);
+        mem_write8(buffer + 1, this.tos);
+        mem_write16(buffer + 2, this.total_length);
+        mem_write16(buffer + 4, this.identification);
+        mem_write16(buffer + 6, (this.flags << 13) | this.fragment_offset);
+        mem_write8(buffer + 8, this.ttl);
+        mem_write8(buffer + 9, this.protocol);
+        mem_write16(buffer + 10, 0);
+        mem_write32(buffer + 12, this.src_ip);
+        mem_write32(buffer + 16, this.dest_ip);
+        
+        # Calculate checksum
+        this.checksum = this.calculate_checksum(buffer, this.ihl * 4);
+        mem_write16(buffer + 10, this.checksum);
+    }
+    
+    func calculate_checksum(data, length) {
+        var sum = 0;
+        var i = 0;
+        
+        for (i = 0; i < length; i = i + 2) {
+            sum = sum + mem_read16(data + i);
+        }
+        
+        for (;;) {
+            if (sum <= 0xFFFF) {
+                break;
+            }
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+        
+        return 0xFFFF - sum;
+    }
+}
+
+# TCP segment
+class TCPSegment {
+    var src_port;
+    var dest_port;
+    var seq_num;
+    var ack_num;
+    var data_offset;
+    var flags;
+    var window_size;
+    var checksum;
+    var urgent_ptr;
+    var payload;
+    var payload_len;
+    
+    func init() {
+        this.data_offset = 5;
+        this.window_size = 65535;
+    }
+    
+    func parse(buffer) {
+        this.src_port = mem_read16(buffer);
+        this.dest_port = mem_read16(buffer + 2);
+        this.seq_num = mem_read32(buffer + 4);
+        this.ack_num = mem_read32(buffer + 8);
+        
+        var offset_flags = mem_read16(buffer + 12);
+        this.data_offset = (offset_flags >> 12) & 0x0F;
+        this.flags = offset_flags & 0x1FF;
+        
+        this.window_size = mem_read16(buffer + 14);
+        this.checksum = mem_read16(buffer + 16);
+        this.urgent_ptr = mem_read16(buffer + 18);
+        
+        this.payload = buffer + (this.data_offset * 4);
+    }
+    
+    func build(buffer, src_ip, dest_ip) {
+        mem_write16(buffer, this.src_port);
+        mem_write16(buffer + 2, this.dest_port);
+        mem_write32(buffer + 4, this.seq_num);
+        mem_write32(buffer + 8, this.ack_num);
+        mem_write16(buffer + 12, (this.data_offset << 12) | this.flags);
+        mem_write16(buffer + 14, this.window_size);
+        mem_write16(buffer + 16, 0);
+        mem_write16(buffer + 18, this.urgent_ptr);
+        
+        # Calculate checksum with pseudo-header
+        this.checksum = this.calculate_checksum(buffer, src_ip, dest_ip);
+        mem_write16(buffer + 16, this.checksum);
+    }
+    
+    func calculate_checksum(data, src_ip, dest_ip) {
+        # Pseudo-header + TCP segment
+        var sum = 0;
+        
+        # Pseudo-header
+        sum = sum + (src_ip >> 16);
+        sum = sum + (src_ip & 0xFFFF);
+        sum = sum + (dest_ip >> 16);
+        sum = sum + (dest_ip & 0xFFFF);
+        sum = sum + 6;
+        sum = sum + (this.data_offset * 4) + this.payload_len;
+        
+        # TCP header
+        var i = 0;
+        var length = (this.data_offset * 4) + this.payload_len;
+        for (i = 0; i < length; i = i + 2) {
+            sum = sum + mem_read16(data + i);
+        }
+        
+        for (;;) {
+            if (sum <= 0xFFFF) {
+                break;
+            }
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+        
+        return 0xFFFF - sum;
+    }
+}
+
+# TCP flags
+var TCP_FIN = 0x01;
+var TCP_SYN = 0x02;
+var TCP_RST = 0x04;
+var TCP_PSH = 0x08;
+var TCP_ACK = 0x10;
+var TCP_URG = 0x20;
+
+# UDP datagram
+class UDPDatagram {
+    var src_port;
+    var dest_port;
+    var length;
+    var checksum;
+    var payload;
+    
+    func parse(buffer) {
+        this.src_port = mem_read16(buffer);
+        this.dest_port = mem_read16(buffer + 2);
+        this.length = mem_read16(buffer + 4);
+        this.checksum = mem_read16(buffer + 6);
+        this.payload = buffer + 8;
+    }
+    
+    func build(buffer) {
+        mem_write16(buffer, this.src_port);
+        mem_write16(buffer + 2, this.dest_port);
+        mem_write16(buffer + 4, this.length);
+        mem_write16(buffer + 6, this.checksum);
+    }
+}

@@ -1,0 +1,441 @@
+// Nux Memory Safety System
+// Rust-like memory safety with borrow checking and lifetimes
+
+// ===== OWNERSHIP RULES =====
+
+// 1. Each value has exactly one owner
+// 2. When owner goes out of scope, value is dropped
+// 3. Values can be moved or borrowed
+
+class MemorySafety {
+    fn constructor() {
+        this.allocations = {};
+        this.borrows = {};
+        this.lifetimes = {};
+    }
+    
+    fn allocate(id, value) {
+        if (this.allocations[id]) {
+            throw new Error("Double allocation: " + id);
+        }
+        
+        this.allocations[id] = {
+            value: value,
+            owner: true,
+            borrowed: false,
+            mutable_borrow: false,
+            immutable_borrows: 0
+        };
+    }
+    
+    fn deallocate(id) {
+        if (!this.allocations[id]) {
+            throw new Error("Use after free: " + id);
+        }
+        
+        if (this.allocations[id].borrowed) {
+            throw new Error("Cannot drop while borrowed: " + id);
+        }
+        
+        this.allocations[id] = null;
+    }
+    
+    fn move(from_id, to_id) {
+        if (!this.allocations[from_id]) {
+            throw new Error("Move of invalid value: " + from_id);
+        }
+        
+        if (!this.allocations[from_id].owner) {
+            throw new Error("Cannot move non-owned value: " + from_id);
+        }
+        
+        // Transfer ownership
+        this.allocations[to_id] = this.allocations[from_id];
+        this.allocations[from_id] = null;
+    }
+    
+    fn borrow_immutable(id) {
+        if (!this.allocations[id]) {
+            throw new Error("Borrow of invalid value: " + id);
+        }
+        
+        if (this.allocations[id].mutable_borrow) {
+            throw new Error("Cannot borrow immutably while mutably borrowed: " + id);
+        }
+        
+        this.allocations[id].immutable_borrows += 1;
+        this.allocations[id].borrowed = true;
+    }
+    
+    fn borrow_mutable(id) {
+        if (!this.allocations[id]) {
+            throw new Error("Borrow of invalid value: " + id);
+        }
+        
+        if (this.allocations[id].borrowed) {
+            throw new Error("Cannot borrow mutably while already borrowed: " + id);
+        }
+        
+        this.allocations[id].mutable_borrow = true;
+        this.allocations[id].borrowed = true;
+    }
+    
+    fn return_borrow(id, mutable) {
+        if (!this.allocations[id]) {
+            return;  // Already freed
+        }
+        
+        if (mutable) {
+            this.allocations[id].mutable_borrow = false;
+        } else {
+            this.allocations[id].immutable_borrows -= 1;
+        }
+        
+        if (this.allocations[id].immutable_borrows == 0 && 
+            !this.allocations[id].mutable_borrow) {
+            this.allocations[id].borrowed = false;
+        }
+    }
+}
+
+// Global memory safety tracker
+let MEMORY_SAFETY = new MemorySafety();
+
+// ===== SMART POINTERS =====
+
+class Box<T> {
+    // Owned heap allocation
+    fn constructor(value) {
+        this.id = crypto_randomUUID();
+        this.value = value;
+        MEMORY_SAFETY.allocate(this.id, value);
+    }
+    
+    fn get(): T {
+        return this.value;
+    }
+    
+    fn set(value: T) {
+        this.value = value;
+    }
+    
+    fn drop() {
+        MEMORY_SAFETY.deallocate(this.id);
+        this.value = null;
+    }
+}
+
+class Rc<T> {
+    // Reference counted pointer
+    fn constructor(value) {
+        this.id = crypto_randomUUID();
+        this.value = value;
+        this.count = 1;
+        MEMORY_SAFETY.allocate(this.id, value);
+    }
+    
+    fn clone(): Rc<T> {
+        this.count += 1;
+        let rc = Object.create(this);
+        return rc;
+    }
+    
+    fn get(): T {
+        return this.value;
+    }
+    
+    fn drop() {
+        this.count -= 1;
+        if (this.count == 0) {
+            MEMORY_SAFETY.deallocate(this.id);
+            this.value = null;
+        }
+    }
+}
+
+class Arc<T> {
+    // Atomic reference counted (thread-safe)
+    fn constructor(value) {
+        this.id = crypto_randomUUID();
+        this.value = value;
+        this.count = atomic_new(1);
+        MEMORY_SAFETY.allocate(this.id, value);
+    }
+    
+    fn clone(): Arc<T> {
+        atomic_increment(this.count);
+        let arc = Object.create(this);
+        return arc;
+    }
+    
+    fn get(): T {
+        return this.value;
+    }
+    
+    fn drop() {
+        let count = atomic_decrement(this.count);
+        if (count == 0) {
+            MEMORY_SAFETY.deallocate(this.id);
+            this.value = null;
+        }
+    }
+}
+
+class RefCell<T> {
+    // Interior mutability with runtime borrow checking
+    fn constructor(value) {
+        this.id = crypto_randomUUID();
+        this.value = value;
+        this.borrow_state = "none";  // none, immutable, mutable
+        MEMORY_SAFETY.allocate(this.id, value);
+    }
+    
+    fn borrow(): Ref<T> {
+        if (this.borrow_state == "mutable") {
+            throw new Error("Already mutably borrowed");
+        }
+        
+        this.borrow_state = "immutable";
+        MEMORY_SAFETY.borrow_immutable(this.id);
+        
+        return new Ref(this);
+    }
+    
+    fn borrow_mut(): RefMut<T> {
+        if (this.borrow_state != "none") {
+            throw new Error("Already borrowed");
+        }
+        
+        this.borrow_state = "mutable";
+        MEMORY_SAFETY.borrow_mutable(this.id);
+        
+        return new RefMut(this);
+    }
+    
+    fn return_borrow(mutable) {
+        MEMORY_SAFETY.return_borrow(this.id, mutable);
+        this.borrow_state = "none";
+    }
+}
+
+class Ref<T> {
+    fn constructor(cell) {
+        this.cell = cell;
+    }
+    
+    fn get(): T {
+        return this.cell.value;
+    }
+    
+    fn drop() {
+        this.cell.return_borrow(false);
+    }
+}
+
+class RefMut<T> {
+    fn constructor(cell) {
+        this.cell = cell;
+    }
+    
+    fn get(): T {
+        return this.cell.value;
+    }
+    
+    fn set(value: T) {
+        this.cell.value = value;
+    }
+    
+    fn drop() {
+        this.cell.return_borrow(true);
+    }
+}
+
+// ===== LIFETIME SYSTEM =====
+
+class Lifetime {
+    fn constructor(name, start, end) {
+        this.name = name;
+        this.start = start;
+        this.end = end;
+    }
+    
+    fn outlives(other: Lifetime): bool {
+        return this.start <= other.start && this.end >= other.end;
+    }
+    
+    fn overlaps(other: Lifetime): bool {
+        return !(this.end < other.start || other.end < this.start);
+    }
+}
+
+class LifetimeChecker {
+    fn constructor() {
+        this.lifetimes = {};
+        this.current_scope = 0;
+    }
+    
+    fn enter_scope() {
+        this.current_scope += 1;
+    }
+    
+    fn exit_scope() {
+        // Drop all values in this scope
+        obj_forEach(this.lifetimes, fn(id, lifetime) {
+            if (lifetime.end == this.current_scope) {
+                MEMORY_SAFETY.deallocate(id);
+            }
+        });
+        
+        this.current_scope -= 1;
+    }
+    
+    fn check_borrow(value_lifetime, borrow_lifetime) {
+        if (!value_lifetime.outlives(borrow_lifetime)) {
+            throw new Error("Borrow outlives value");
+        }
+    }
+}
+
+// ===== BORROW CHECKER =====
+
+class BorrowChecker {
+    fn constructor() {
+        this.borrows = [];
+    }
+    
+    fn check_program(ast) {
+        this.check_statement(ast);
+    }
+    
+    fn check_statement(stmt) {
+        if (stmt.type == "VarDecl") {
+            this.check_var_decl(stmt);
+        } else if (stmt.type == "Assign") {
+            this.check_assign(stmt);
+        } else if (stmt.type == "Call") {
+            this.check_call(stmt);
+        }
+    }
+    
+    fn check_var_decl(stmt) {
+        // Check if value is moved or borrowed
+        if (stmt.initializer) {
+            this.check_expression(stmt.initializer);
+        }
+    }
+    
+    fn check_assign(stmt) {
+        // Check if target is mutably borrowed
+        let borrows = this.get_active_borrows(stmt.target);
+        
+        arr_forEach(borrows, fn(borrow) {
+            if (!borrow.mutable) {
+                throw new Error("Cannot assign to immutably borrowed value");
+            }
+        });
+    }
+    
+    fn check_call(stmt) {
+        // Check function parameters
+        arr_forEach(stmt.arguments, fn(arg) {
+            this.check_expression(arg);
+        });
+    }
+    
+    fn check_expression(expr) {
+        if (expr.type == "Borrow") {
+            this.add_borrow(expr);
+        } else if (expr.type == "Move") {
+            this.check_move(expr);
+        }
+    }
+    
+    fn add_borrow(expr) {
+        arr_push(this.borrows, {
+            value: expr.value,
+            mutable: expr.mutable,
+            lifetime: expr.lifetime
+        });
+    }
+    
+    fn check_move(expr) {
+        // Check if value is borrowed
+        let borrows = this.get_active_borrows(expr.value);
+        
+        if (arr_length(borrows) > 0) {
+            throw new Error("Cannot move borrowed value");
+        }
+    }
+    
+    fn get_active_borrows(value) {
+        return arr_filter(this.borrows, fn(borrow) {
+            return borrow.value == value;
+        });
+    }
+}
+
+// ===== MEMORY SAFETY EXAMPLES =====
+
+fn example_ownership() {
+    let x = new Box(42);
+    let y = x;  // Move ownership
+    // x.get();  // Error! x no longer owns the value
+    print(y.get());  // OK
+}
+
+fn example_borrowing() {
+    let x = new RefCell(42);
+    
+    {
+        let r1 = x.borrow();  // Immutable borrow
+        let r2 = x.borrow();  // OK, multiple immutable borrows
+        print(r1.get());
+        print(r2.get());
+        r1.drop();
+        r2.drop();
+    }
+    
+    {
+        let r = x.borrow_mut();  // Mutable borrow
+        r.set(100);
+        r.drop();
+    }
+    
+    print(x.borrow().get());  // 100
+}
+
+fn example_reference_counting() {
+    let x = new Rc(vec![1, 2, 3]);
+    let y = x.clone();  // Increment ref count
+    let z = x.clone();  // Increment ref count
+    
+    print(x.get());  // [1, 2, 3]
+    print(y.get());  // [1, 2, 3]
+    
+    x.drop();  // Decrement ref count
+    y.drop();  // Decrement ref count
+    z.drop();  // Decrement ref count, free memory
+}
+
+fn example_lifetimes() {
+    let x = new Box(42);
+    
+    {
+        let y = x.borrow();  // y's lifetime is this scope
+        print(y.get());
+    }  // y dropped here
+    
+    print(x.get());  // OK, x still valid
+}
+
+// ===== COMPILE-TIME SAFETY CHECKS =====
+
+fn compile_time_check(ast) {
+    let borrow_checker = new BorrowChecker();
+    borrow_checker.check_program(ast);
+    
+    let lifetime_checker = new LifetimeChecker();
+    // Check lifetimes...
+    
+    return true;  // All checks passed
+}

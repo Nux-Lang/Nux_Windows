@@ -1,0 +1,42 @@
+# Nux Graphics Library
+# Wraps Vision/Image intrinsics
+
+# Allocate a new image/buffer
+func img_new(width, height) {
+    return img_alloc(width, height);
+}
+
+# Free an image
+func img_delete(id) {
+    img_free(id);
+}
+
+# Draw image onto default display/buffer
+func draw(id, x, y) {
+    img_draw(id, x, y);
+}
+
+# Capture from Camera
+func cam_snap(cam_id) {
+    return cam_capture(cam_id);
+}
+
+# Get pixel value
+func get_pixel(id, x, y) {
+    return img_get(id, x, y);
+}
+
+# Set pixel value (RGBA)
+func set_pixel(id, x, y, color) {
+    img_set(id, x, y, color);
+}
+
+# Fill image with color
+func fill(id, color) {
+    img_fill(id, color);
+}
+
+# Convert to Grayscale
+func grayscale(id) {
+    img_grayscale(id);
+}

@@ -1,0 +1,158 @@
+# Nux Garbage Collector Library
+# Automatic memory management
+
+import "std.memory";
+import "std.atomic";
+
+class GarbageCollector {
+    var heap_start;
+    var heap_size;
+    var allocated_objects;
+    var roots;
+    var gc_threshold;
+    var bytes_allocated;
+    
+    func init(heap_size_bytes) {
+        this.heap_size = heap_size_bytes;
+        this.heap_start = mem_alloc_aligned(heap_size_bytes, 4096);
+        
+        this.allocated_objects = new List();
+        this.allocated_objects.init();
+        
+        this.roots = new List();
+        this.roots.init();
+        
+        this.gc_threshold = heap_size_bytes / 2;
+        this.bytes_allocated = 0;
+    }
+    
+    func allocate(size) {
+        if (this.bytes_allocated + size > this.gc_threshold) {
+            this.collect();
+        }
+        
+        var obj = mem_alloc_aligned(size + 16, 8);
+        
+        # Object header: size, mark bit, type
+        mem_write64(obj, size);
+        mem_write64(obj + 8, 0);
+        
+        this.allocated_objects.append(obj);
+        this.bytes_allocated = this.bytes_allocated + size;
+        
+        return obj + 16;
+    }
+    
+    func add_root(ptr) {
+        this.roots.append(ptr);
+    }
+    
+    func collect() {
+        # Mark phase
+        this.mark_all_roots();
+        
+        # Sweep phase
+        this.sweep();
+        
+        println("GC: Collected garbage");
+    }
+    
+    func mark_all_roots() {
+        var i = 0;
+        for (i = 0; i < this.roots.length(); i = i + 1) {
+            var root = this.roots.get(i);
+            this.mark(root);
+        }
+    }
+    
+    func mark(ptr) {
+        if (ptr == 0) {
+            return;
+        }
+        
+        var obj_header = ptr - 16;
+        var mark_bit = mem_read64(obj_header + 8);
+        
+        if (mark_bit != 0) {
+            return;
+        }
+        
+        mem_write64(obj_header + 8, 1);
+        
+        # Recursively mark referenced objects
+        # ... (scan object for pointers)
+    }
+    
+    func sweep() {
+        var new_list = new List();
+        new_list.init();
+        
+        var bytes_freed = 0;
+        
+        var i = 0;
+        for (i = 0; i < this.allocated_objects.length(); i = i + 1) {
+            var obj = this.allocated_objects.get(i);
+            var mark_bit = mem_read64(obj + 8);
+            
+            if (mark_bit == 0) {
+                # Object is garbage - free it
+                var size = mem_read64(obj);
+                bytes_freed = bytes_freed + size;
+            }
+            if (mark_bit != 0) {
+                # Object is live - keep it and clear mark
+                mem_write64(obj + 8, 0);
+                new_list.append(obj);
+            }
+        }
+        
+        this.allocated_objects = new_list;
+        this.bytes_allocated = this.bytes_allocated - bytes_freed;
+    }
+}
+
+# Reference counting GC
+class RefCountedObject {
+    var data;
+    var ref_count;
+    var size;
+    
+    func init(obj_size) {
+        this.size = obj_size;
+        this.data = mem_alloc_aligned(obj_size, 8);
+        this.ref_count = 1;
+    }
+    
+    func retain() {
+        atomic_inc(this.ref_count);
+    }
+    
+    func release() {
+        atomic_dec(this.ref_count);
+        
+        if (this.ref_count == 0) {
+            this.deallocate();
+        }
+    }
+    
+    func deallocate() {
+        # Free memory
+        # ... (implementation)
+    }
+}
+
+# Global GC instance
+var global_gc;
+
+func gc_init(heap_size) {
+    global_gc = new GarbageCollector();
+    global_gc.init(heap_size);
+}
+
+func gc_alloc(size) {
+    return global_gc.allocate(size);
+}
+
+func gc_collect() {
+    global_gc.collect();
+}

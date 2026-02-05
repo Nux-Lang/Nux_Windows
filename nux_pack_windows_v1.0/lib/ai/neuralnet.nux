@@ -1,0 +1,300 @@
+# Nux Neural Network Library
+# Deep learning layers and activations
+
+import "ai.tensor";
+
+# Activation functions
+func relu(x) {
+    if (x > 0) {
+        return x;
+    }
+    return 0;
+}
+
+func relu_derivative(x) {
+    if (x > 0) {
+        return 1;
+    }
+    return 0;
+}
+
+func sigmoid(x) {
+    return 1 / (1 + exp(0 - x));
+}
+
+func sigmoid_derivative(x) {
+    var s = sigmoid(x);
+    return s * (1 - s);
+}
+
+func tanh_activation(x) {
+    var exp_pos = exp(x);
+    var exp_neg = exp(0 - x);
+    return (exp_pos - exp_neg) / (exp_pos + exp_neg);
+}
+
+func tanh_derivative(x) {
+    var t = tanh_activation(x);
+    return 1 - t * t;
+}
+
+func softmax(input, output, n) {
+    var max_val = mem_read64(input);
+    var i = 0;
+    
+    # Find max for numerical stability
+    for (i = 1; i < n; i = i + 1) {
+        var val = mem_read64(input + i * 8);
+        if (val > max_val) {
+            max_val = val;
+        }
+    }
+    
+    # Compute exp and sum
+    var sum = 0;
+    for (i = 0; i < n; i = i + 1) {
+        var val = mem_read64(input + i * 8);
+        var exp_val = exp(val - max_val);
+        mem_write64(output + i * 8, exp_val);
+        sum = sum + exp_val;
+    }
+    
+    # Normalize
+    for (i = 0; i < n; i = i + 1) {
+        var val = mem_read64(output + i * 8);
+        mem_write64(output + i * 8, val / sum);
+    }
+}
+
+# Dense/Fully Connected Layer
+class DenseLayer {
+    var weights;
+    var biases;
+    var input_size;
+    var output_size;
+    var activation;
+    
+    func init(in_size, out_size, act) {
+        this.input_size = in_size;
+        this.output_size = out_size;
+        this.activation = act;
+        
+        # Initialize weights (Xavier initialization)
+        var weight_shape = mem_alloc_aligned(16, 8);
+        mem_write64(weight_shape, in_size);
+        mem_write64(weight_shape + 8, out_size);
+        
+        this.weights = new Tensor();
+        this.weights.init(weight_shape, 2);
+        
+        # Random initialization
+        var scale = sqrt(2 / in_size);
+        var i = 0;
+        for (i = 0; i < in_size * out_size; i = i + 1) {
+            var rand_val = (random() % 1000) / 1000 - 0.5;
+            mem_write64(this.weights.data + i * 8, rand_val * scale);
+        }
+        
+        # Initialize biases
+        var bias_shape = mem_alloc_aligned(8, 8);
+        mem_write64(bias_shape, out_size);
+        
+        this.biases = new Tensor();
+        this.biases.init(bias_shape, 1);
+    }
+    
+    func forward(input) {
+        # output = input @ weights + biases
+        var output = input.matmul(this.weights);
+        output = output.add(this.biases);
+        
+        # Apply activation
+        if (this.activation == 1) {
+            this.apply_relu(output);
+        }
+        if (this.activation == 2) {
+            this.apply_sigmoid(output);
+        }
+        
+        return output;
+    }
+    
+    func apply_relu(tensor) {
+        var i = 0;
+        for (i = 0; i < tensor.size; i = i + 1) {
+            var val = mem_read64(tensor.data + i * 8);
+            if (val < 0) {
+                mem_write64(tensor.data + i * 8, 0);
+            }
+        }
+    }
+    
+    func apply_sigmoid(tensor) {
+        var i = 0;
+        for (i = 0; i < tensor.size; i = i + 1) {
+            var val = mem_read64(tensor.data + i * 8);
+            var result = sigmoid(val);
+            mem_write64(tensor.data + i * 8, result);
+        }
+    }
+}
+
+# Convolutional Layer
+class Conv2DLayer {
+    var filters;
+    var kernel_size;
+    var stride;
+    var padding;
+    var num_filters;
+    var input_channels;
+    
+    func init(in_channels, num_filt, kernel, str, pad) {
+        this.input_channels = in_channels;
+        this.num_filters = num_filt;
+        this.kernel_size = kernel;
+        this.stride = str;
+        this.padding = pad;
+        
+        # Initialize filters
+        var filter_shape = mem_alloc_aligned(32, 8);
+        mem_write64(filter_shape, num_filt);
+        mem_write64(filter_shape + 8, in_channels);
+        mem_write64(filter_shape + 16, kernel);
+        mem_write64(filter_shape + 24, kernel);
+        
+        this.filters = new Tensor();
+        this.filters.init(filter_shape, 4);
+        
+        # Random initialization
+        var total = num_filt * in_channels * kernel * kernel;
+        var i = 0;
+        for (i = 0; i < total; i = i + 1) {
+            var rand_val = (random() % 1000) / 1000 - 0.5;
+            mem_write64(this.filters.data + i * 8, rand_val * 0.1);
+        }
+    }
+    
+    func forward(input) {
+        # Simplified convolution (2D)
+        # input shape: [batch, channels, height, width]
+        # output shape: [batch, num_filters, out_height, out_width]
+        
+        var in_h = mem_read64(input.shape + 16);
+        var in_w = mem_read64(input.shape + 24);
+        
+        var out_h = (in_h + 2 * this.padding - this.kernel_size) / this.stride + 1;
+        var out_w = (in_w + 2 * this.padding - this.kernel_size) / this.stride + 1;
+        
+        var output_shape = mem_alloc_aligned(32, 8);
+        mem_write64(output_shape, 1);
+        mem_write64(output_shape + 8, this.num_filters);
+        mem_write64(output_shape + 16, out_h);
+        mem_write64(output_shape + 24, out_w);
+        
+        var output = new Tensor();
+        output.init(output_shape, 4);
+        
+        # Perform convolution
+        # ... (implementation details)
+        
+        return output;
+    }
+}
+
+# Pooling Layer
+class MaxPool2D {
+    var pool_size;
+    var stride;
+    
+    func init(size, str) {
+        this.pool_size = size;
+        this.stride = str;
+    }
+    
+    func forward(input) {
+        var in_h = mem_read64(input.shape + 16);
+        var in_w = mem_read64(input.shape + 24);
+        
+        var out_h = (in_h - this.pool_size) / this.stride + 1;
+        var out_w = (in_w - this.pool_size) / this.stride + 1;
+        
+        var output_shape = mem_alloc_aligned(32, 8);
+        mem_write64(output_shape, mem_read64(input.shape));
+        mem_write64(output_shape + 8, mem_read64(input.shape + 8));
+        mem_write64(output_shape + 16, out_h);
+        mem_write64(output_shape + 24, out_w);
+        
+        var output = new Tensor();
+        output.init(output_shape, 4);
+        
+        # Max pooling operation
+        # ... (implementation)
+        
+        return output;
+    }
+}
+
+# Dropout Layer
+class Dropout {
+    var rate;
+    var training;
+    
+    func init(drop_rate) {
+        this.rate = drop_rate;
+        this.training = 1;
+    }
+    
+    func forward(input) {
+        if (this.training == 0) {
+            return input;
+        }
+        
+        var output = new Tensor();
+        output.init(input.shape, input.ndim);
+        
+        var i = 0;
+        for (i = 0; i < input.size; i = i + 1) {
+            var rand_val = (random() % 1000) / 1000;
+            if (rand_val > this.rate) {
+                var val = mem_read64(input.data + i * 8);
+                mem_write64(output.data + i * 8, val / (1 - this.rate));
+            }
+        }
+        
+        return output;
+    }
+}
+
+# Batch Normalization
+class BatchNorm {
+    var gamma;
+    var beta;
+    var running_mean;
+    var running_var;
+    var momentum;
+    
+    func init(num_features) {
+        this.momentum = 0.9;
+        
+        var shape = mem_alloc_aligned(8, 8);
+        mem_write64(shape, num_features);
+        
+        this.gamma = new Tensor();
+        this.gamma.init(shape, 1);
+        
+        this.beta = new Tensor();
+        this.beta.init(shape, 1);
+        
+        this.running_mean = new Tensor();
+        this.running_mean.init(shape, 1);
+        
+        this.running_var = new Tensor();
+        this.running_var.init(shape, 1);
+        
+        # Initialize gamma to 1
+        var i = 0;
+        for (i = 0; i < num_features; i = i + 1) {
+            mem_write64(this.gamma.data + i * 8, 1);
+        }
+    }
+}

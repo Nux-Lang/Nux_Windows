@@ -1,0 +1,205 @@
+# Nux CPU Control Library
+# Direct CPU control and CPUID access
+
+# CPUID instruction wrapper
+func cpuid(leaf, subleaf) {
+    asm {
+        "MOV EAX, " leaf
+        "MOV ECX, " subleaf
+        "CPUID"
+        "PUSH RAX"
+        "PUSH RBX"
+        "PUSH RCX"
+        "PUSH RDX"
+    }
+}
+
+# Get CPU vendor string
+func cpu_vendor() {
+    asm {
+        "XOR EAX, EAX"
+        "CPUID"
+        "PUSH RBX"
+        "PUSH RDX"
+        "PUSH RCX"
+    }
+}
+
+# Get CPU features
+func cpu_features() {
+    asm {
+        "MOV EAX, 1"
+        "CPUID"
+        "PUSH RCX"
+        "PUSH RDX"
+    }
+}
+
+# MSR (Model Specific Register) operations
+func rdmsr(msr) {
+    asm {
+        "MOV ECX, " msr
+        "RDMSR"
+        "SHL RDX, 32"
+        "OR RAX, RDX"
+    }
+}
+
+func wrmsr(msr, value) {
+    asm {
+        "MOV ECX, " msr
+        "MOV RAX, " value
+        "MOV RDX, " value
+        "SHR RDX, 32"
+        "WRMSR"
+    }
+}
+
+# Control registers
+func read_cr0() {
+    asm {
+        "MOV RAX, CR0"
+    }
+}
+
+func write_cr0(value) {
+    asm {
+        "MOV CR0, " value
+    }
+}
+
+func read_cr2() {
+    asm {
+        "MOV RAX, CR2"
+    }
+}
+
+func read_cr3() {
+    asm {
+        "MOV RAX, CR3"
+    }
+}
+
+func write_cr3(value) {
+    asm {
+        "MOV CR3, " value
+    }
+}
+
+func read_cr4() {
+    asm {
+        "MOV RAX, CR4"
+    }
+}
+
+func write_cr4(value) {
+    asm {
+        "MOV CR4, " value
+    }
+}
+
+# Timestamp counter
+func rdtsc() {
+    asm {
+        "RDTSC"
+        "SHL RDX, 32"
+        "OR RAX, RDX"
+    }
+}
+
+func rdtscp() {
+    asm {
+        "RDTSCP"
+        "SHL RDX, 32"
+        "OR RAX, RDX"
+    }
+}
+
+# CPU pause/halt
+func cpu_pause() {
+    asm {
+        "PAUSE"
+    }
+}
+
+func cpu_halt() {
+    asm {
+        "HLT"
+    }
+}
+
+# Disable/enable interrupts
+func cli() {
+    asm {
+        "CLI"
+    }
+}
+
+func sti() {
+    asm {
+        "STI"
+    }
+}
+
+# Get/set flags register
+func get_flags() {
+    asm {
+        "PUSHFQ"
+        "POP RAX"
+    }
+}
+
+func set_flags(flags) {
+    asm {
+        "PUSH " flags
+        "POPFQ"
+    }
+}
+
+# I/O port operations
+func inb(port) {
+    asm {
+        "MOV DX, " port
+        "IN AL, DX"
+        "MOVZX RAX, AL"
+    }
+}
+
+func outb(port, value) {
+    asm {
+        "MOV DX, " port
+        "MOV AL, " value
+        "OUT DX, AL"
+    }
+}
+
+func inw(port) {
+    asm {
+        "MOV DX, " port
+        "IN AX, DX"
+        "MOVZX RAX, AX"
+    }
+}
+
+func outw(port, value) {
+    asm {
+        "MOV DX, " port
+        "MOV AX, " value
+        "OUT DX, AX"
+    }
+}
+
+func inl(port) {
+    asm {
+        "MOV DX, " port
+        "IN EAX, DX"
+    }
+}
+
+func outl(port, value) {
+    asm {
+        "MOV DX, " port
+        "MOV EAX, " value
+        "OUT DX, EAX"
+    }
+}

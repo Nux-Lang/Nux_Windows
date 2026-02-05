@@ -1,0 +1,133 @@
+# Nux Serialization Library
+# Binary serialization formats
+
+import "std.collections";
+
+class Serializer {
+    var buffer;
+    var position;
+    
+    func init() {
+        this.buffer = mem_alloc_aligned(4096, 8);
+        this.position = 0;
+    }
+    
+    func write_int(value) {
+        mem_write64(this.buffer + this.position, value);
+        this.position = this.position + 8;
+    }
+    
+    func write_string(str) {
+        var len = strlen(str);
+        this.write_int(len);
+        
+        var i = 0;
+        for (i = 0; i < len; i = i + 1) {
+            mem_write8(this.buffer + this.position, mem_read8(str + i));
+            this.position = this.position + 1;
+        }
+    }
+    
+    func write_list(list) {
+        this.write_int(list.length());
+        
+        var i = 0;
+        for (i = 0; i < list.length(); i = i + 1) {
+            var item = list.get(i);
+            this.write_int(item);
+        }
+    }
+    
+    func get_bytes() {
+        return this.buffer;
+    }
+    
+    func get_size() {
+        return this.position;
+    }
+}
+
+class Deserializer {
+    var buffer;
+    var position;
+    
+    func init(data) {
+        this.buffer = data;
+        this.position = 0;
+    }
+    
+    func read_int() {
+        var value = mem_read64(this.buffer + this.position);
+        this.position = this.position + 8;
+        return value;
+    }
+    
+    func read_string() {
+        var len = this.read_int();
+        var str = mem_alloc_aligned(len + 1, 1);
+        
+        var i = 0;
+        for (i = 0; i < len; i = i + 1) {
+            mem_write8(str + i, mem_read8(this.buffer + this.position));
+            this.position = this.position + 1;
+        }
+        
+        mem_write8(str + len, 0);
+        return str;
+    }
+    
+    func read_list() {
+        var len = this.read_int();
+        var list = new List();
+        list.init();
+        
+        var i = 0;
+        for (i = 0; i < len; i = i + 1) {
+            var item = this.read_int();
+            list.append(item);
+        }
+        
+        return list;
+    }
+}
+
+# MessagePack encoder
+class MessagePackEncoder {
+    var buffer;
+    var position;
+    
+    func init() {
+        this.buffer = mem_alloc_aligned(4096, 8);
+        this.position = 0;
+    }
+    
+    func encode_int(value) {
+        if (value >= 0) {
+            if (value < 128) {
+                mem_write8(this.buffer + this.position, value);
+                this.position = this.position + 1;
+                return;
+            }
+        }
+        
+        # Use int32 format
+        mem_write8(this.buffer + this.position, 0xD2);
+        this.position = this.position + 1;
+        mem_write32(this.buffer + this.position, value);
+        this.position = this.position + 4;
+    }
+    
+    func encode_string(str) {
+        var len = strlen(str);
+        
+        # fixstr format
+        mem_write8(this.buffer + this.position, 0xA0 | len);
+        this.position = this.position + 1;
+        
+        var i = 0;
+        for (i = 0; i < len; i = i + 1) {
+            mem_write8(this.buffer + this.position, mem_read8(str + i));
+            this.position = this.position + 1;
+        }
+    }
+}

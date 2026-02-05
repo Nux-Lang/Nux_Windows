@@ -1,0 +1,390 @@
+// Nux Standard Library - Type Theory
+// Dependent types, linear types, and advanced type systems
+
+// ===== TYPE UNIVERSE =====
+
+fn type_universe(level) {
+    // Type universe at level
+    return {
+        level: level,
+        kind: "universe"
+    };
+}
+
+fn type_prop() {
+    // Proposition type
+    return type_universe(0);
+}
+
+fn type_type() {
+    // Type type
+    return type_universe(1);
+}
+
+// ===== DEPENDENT TYPES =====
+
+fn deptype_pi(name, domain, codomain) {
+    // Dependent function type (Π type)
+    // Π(x:A).B(x)
+    return {
+        kind: "pi",
+        name: name,
+        domain: domain,
+        codomain: codomain
+    };
+}
+
+fn deptype_sigma(name, first, second) {
+    // Dependent pair type (Σ type)
+    // Σ(x:A).B(x)
+    return {
+        kind: "sigma",
+        name: name,
+        first: first,
+        second: second
+    };
+}
+
+fn deptype_apply(piType, value) {
+    // Apply dependent function
+    return piType.codomain(value);
+}
+
+fn deptype_pair(value1, value2, sigmaType) {
+    // Create dependent pair
+    return {
+        fst: value1,
+        snd: value2,
+        type: sigmaType
+    };
+}
+
+// ===== INDEXED TYPES =====
+
+fn indexed_vector(elemType, length) {
+    // Vector indexed by length
+    return {
+        kind: "vector",
+        elemType: elemType,
+        length: length
+    };
+}
+
+fn indexed_fin(n) {
+    // Finite type with n elements
+    return {
+        kind: "fin",
+        n: n
+    };
+}
+
+// ===== LINEAR TYPES =====
+
+fn linear_type(baseType) {
+    // Linear type (must be used exactly once)
+    return {
+        kind: "linear",
+        baseType: baseType,
+        used: false
+    };
+}
+
+fn linear_use(linearValue) {
+    // Use linear value
+    if (linearValue.type.used) {
+        print("Error: Linear value used more than once!");
+        return null;
+    }
+    
+    linearValue.type.used = true;
+    return linearValue.value;
+}
+
+fn linear_tensor(type1, type2) {
+    // Linear tensor product
+    return {
+        kind: "tensor",
+        left: type1,
+        right: type2
+    };
+}
+
+fn linear_lolli(type1, type2) {
+    // Linear implication (lollipop)
+    return {
+        kind: "lolli",
+        domain: type1,
+        codomain: type2
+    };
+}
+
+// ===== AFFINE TYPES =====
+
+fn affine_type(baseType) {
+    // Affine type (used at most once)
+    return {
+        kind: "affine",
+        baseType: baseType,
+        used: false
+    };
+}
+
+// ===== SESSION TYPES =====
+
+fn session_send(type) {
+    // Send type in session
+    return {
+        kind: "send",
+        type: type
+    };
+}
+
+fn session_receive(type) {
+    // Receive type in session
+    return {
+        kind: "receive",
+        type: type
+    };
+}
+
+fn session_choice(branches) {
+    // Choice in session
+    return {
+        kind: "choice",
+        branches: branches
+    };
+}
+
+fn session_end() {
+    // End of session
+    return {kind: "end"};
+}
+
+// ===== EQUALITY TYPES =====
+
+fn eq_refl(value) {
+    // Reflexivity: x = x
+    return {
+        kind: "refl",
+        value: value
+    };
+}
+
+fn eq_subst(equality, property) {
+    // Substitution: if x = y then P(x) = P(y)
+    return property(equality.value);
+}
+
+fn eq_sym(equality) {
+    // Symmetry: if x = y then y = x
+    return {
+        kind: "sym",
+        inner: equality
+    };
+}
+
+fn eq_trans(eq1, eq2) {
+    // Transitivity: if x = y and y = z then x = z
+    return {
+        kind: "trans",
+        left: eq1,
+        right: eq2
+    };
+}
+
+// ===== INDUCTIVE TYPES =====
+
+fn inductive_nat() {
+    // Natural numbers (inductive)
+    return {
+        kind: "inductive",
+        name: "Nat",
+        constructors: {
+            Zero: fn() { return {ctor: "Zero"}; },
+            Succ: fn(n) { return {ctor: "Succ", pred: n}; }
+        }
+    };
+}
+
+fn inductive_list(elemType) {
+    // List (inductive)
+    return {
+        kind: "inductive",
+        name: "List",
+        elemType: elemType,
+        constructors: {
+            Nil: fn() { return {ctor: "Nil"}; },
+            Cons: fn(head, tail) {
+                return {ctor: "Cons", head: head, tail: tail};
+            }
+        }
+    };
+}
+
+// ===== COINDUCTIVE TYPES =====
+
+fn coinductive_stream(elemType) {
+    // Infinite stream (coinductive)
+    return {
+        kind: "coinductive",
+        name: "Stream",
+        elemType: elemType,
+        destructors: {
+            head: fn(stream) { return stream.head; },
+            tail: fn(stream) { return stream.tail; }
+        }
+    };
+}
+
+// ===== HIGHER-KINDED TYPES =====
+
+fn hkt_functor(f) {
+    // Functor type constructor (* -> *)
+    return {
+        kind: "hkt",
+        arity: 1,
+        constructor: f
+    };
+}
+
+fn hkt_bifunctor(f) {
+    // Bifunctor type constructor (* -> * -> *)
+    return {
+        kind: "hkt",
+        arity: 2,
+        constructor: f
+    };
+}
+
+fn hkt_apply(hkt, ...types) {
+    // Apply type constructor
+    return hkt.constructor(...types);
+}
+
+// ===== EXISTENTIAL TYPES =====
+
+fn existential_pack(type, value) {
+    // Pack existential type
+    return {
+        kind: "existential",
+        witnessType: type,
+        witness: value
+    };
+}
+
+fn existential_unpack(packed, continuation) {
+    // Unpack existential type
+    return continuation(packed.witnessType, packed.witness);
+}
+
+// ===== GRADUAL TYPES =====
+
+fn gradual_dynamic() {
+    // Dynamic type (?)
+    return {kind: "dynamic"};
+}
+
+fn gradual_cast(value, fromType, toType) {
+    // Cast between types
+    // Runtime check for gradual typing
+    if (gradual_compatible(fromType, toType)) {
+        return {success: true, value: value};
+    }
+    return {success: false, error: "Type cast failed"};
+}
+
+fn gradual_compatible(type1, type2) {
+    // Check type compatibility
+    if (type1.kind == "dynamic" || type2.kind == "dynamic") {
+        return true;
+    }
+    
+    // TODO: Implement full compatibility check
+    return type1.kind == type2.kind;
+}
+
+// ===== SUBSTRUCTURAL TYPES =====
+
+fn substructural_relevant(type) {
+    // Relevant type (no weakening)
+    return {
+        kind: "relevant",
+        baseType: type
+    };
+}
+
+fn substructural_ordered(type) {
+    // Ordered type (no exchange)
+    return {
+        kind: "ordered",
+        baseType: type
+    };
+}
+
+// ===== TYPE INFERENCE =====
+
+fn typeInfer_var(context, varName) {
+    // Infer type of variable
+    return context[varName] || null;
+}
+
+fn typeInfer_app(context, fn, arg) {
+    // Infer type of application
+    let fnType = typeInfer_expr(context, fn);
+    let argType = typeInfer_expr(context, arg);
+    
+    if (fnType.kind == "arrow") {
+        if (typeEqual(fnType.domain, argType)) {
+            return fnType.codomain;
+        }
+    }
+    
+    return null;
+}
+
+fn typeInfer_expr(context, expr) {
+    // Infer type of expression
+    if (expr.kind == "var") {
+        return typeInfer_var(context, expr.name);
+    } else if (expr.kind == "app") {
+        return typeInfer_app(context, expr.fn, expr.arg);
+    }
+    
+    return null;
+}
+
+fn typeEqual(type1, type2) {
+    // Check type equality
+    if (type1.kind != type2.kind) {
+        return false;
+    }
+    
+    // TODO: Implement full equality check
+    return true;
+}
+
+// ===== UNIFICATION =====
+
+fn unify(type1, type2, substitution) {
+    // Unify two types
+    if (type1.kind == "var") {
+        return unify_var(type1, type2, substitution);
+    } else if (type2.kind == "var") {
+        return unify_var(type2, type1, substitution);
+    } else if (type1.kind == type2.kind) {
+        // TODO: Unify structured types
+        return substitution;
+    }
+    
+    return null;  // Unification failed
+}
+
+fn unify_var(typeVar, type, substitution) {
+    // Unify type variable
+    if (obj_has(substitution, typeVar.name)) {
+        return unify(substitution[typeVar.name], type, substitution);
+    }
+    
+    substitution[typeVar.name] = type;
+    return substitution;
+}

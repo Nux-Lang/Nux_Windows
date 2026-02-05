@@ -1,0 +1,143 @@
+# Nux GIS Library
+# Geographic Information Systems and mapping
+
+import "std.collections";
+
+class GeoPoint {
+    var latitude;
+    var longitude;
+    var altitude;
+    
+    func init(lat, lon, alt) {
+        this.latitude = lat;
+        this.longitude = lon;
+        this.altitude = alt;
+    }
+    
+    func distance_to(other) {
+        var R = 6371000;
+        
+        var lat1_rad = this.latitude * 3.14159 / 180;
+        var lat2_rad = other.latitude * 3.14159 / 180;
+        var delta_lat = (other.latitude - this.latitude) * 3.14159 / 180;
+        var delta_lon = (other.longitude - this.longitude) * 3.14159 / 180;
+        
+        var a = sin(delta_lat / 2) * sin(delta_lat / 2) +
+                cos(lat1_rad) * cos(lat2_rad) *
+                sin(delta_lon / 2) * sin(delta_lon / 2);
+        
+        var c = 2 * atan2(sqrt(a), sqrt(1 - a));
+        
+        return R * c;
+    }
+    
+    func bearing_to(other) {
+        var lat1 = this.latitude * 3.14159 / 180;
+        var lat2 = other.latitude * 3.14159 / 180;
+        var delta_lon = (other.longitude - this.longitude) * 3.14159 / 180;
+        
+        var y = sin(delta_lon) * cos(lat2);
+        var x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(delta_lon);
+        
+        var bearing = atan2(y, x) * 180 / 3.14159;
+        return (bearing + 360) % 360;
+    }
+}
+
+class BoundingBox {
+    var min_lat;
+    var max_lat;
+    var min_lon;
+    var max_lon;
+    
+    func init(min_latitude, max_latitude, min_longitude, max_longitude) {
+        this.min_lat = min_latitude;
+        this.max_lat = max_latitude;
+        this.min_lon = min_longitude;
+        this.max_lon = max_longitude;
+    }
+    
+    func contains(point) {
+        if (point.latitude >= this.min_lat) {
+            if (point.latitude <= this.max_lat) {
+                if (point.longitude >= this.min_lon) {
+                    if (point.longitude <= this.max_lon) {
+                        return 1;
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+}
+
+class GeoJSON {
+    var features;
+    
+    func init() {
+        this.features = new List();
+        this.features.init();
+    }
+    
+    func add_point(lat, lon, properties) {
+        var feature = new Map();
+        feature.init();
+        feature.put("type", "Point");
+        feature.put("coordinates", lat);
+        feature.put("properties", properties);
+        
+        this.features.append(feature);
+    }
+    
+    func to_json() {
+        var geojson = new Map();
+        geojson.init();
+        geojson.put("type", "FeatureCollection");
+        geojson.put("features", this.features);
+        
+        return json_stringify(geojson);
+    }
+}
+
+class TileMap {
+    var zoom_level;
+    var tile_size;
+    
+    func init(zoom) {
+        this.zoom_level = zoom;
+        this.tile_size = 256;
+    }
+    
+    func lat_lon_to_tile(lat, lon) {
+        var n = 1 << this.zoom_level;
+        
+        var x = (lon + 180) / 360 * n;
+        var lat_rad = lat * 3.14159 / 180;
+        var y = (1 - log(tan(lat_rad) + 1 / cos(lat_rad)) / 3.14159) / 2 * n;
+        
+        var result = mem_alloc_aligned(16, 8);
+        mem_write64(result, x);
+        mem_write64(result + 8, y);
+        return result;
+    }
+}
+
+func utm_to_lat_lon(easting, northing, zone, northern_hemisphere) {
+    var k0 = 0.9996;
+    var e = 0.00669438;
+    var e_prime_sq = e / (1 - e);
+    
+    var x = easting - 500000;
+    var y = northing;
+    
+    if (northern_hemisphere == 0) {
+        y = y - 10000000;
+    }
+    
+    var M = y / k0;
+    
+    var lat = M;
+    var lon = zone;
+    
+    return lat;
+}

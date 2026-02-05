@@ -1,0 +1,451 @@
+// Nux Standard Library - Array/List Operations
+// Comprehensive array manipulation and functional programming
+
+// ===== BASIC OPERATIONS =====
+
+fn arr_length(arr) {
+    let count = 0;
+    let i = 0;
+    while (arr[i] != null) {
+        count = count + 1;
+        i = i + 1;
+    }
+    return count;
+}
+
+fn arr_get(arr, index) {
+    return arr[index];
+}
+
+fn arr_set(arr, index, value) {
+    arr[index] = value;
+}
+
+// ===== ADDING/REMOVING ELEMENTS =====
+
+fn arr_push(arr, item) {
+    let len = arr_length(arr);
+    arr[len] = item;
+    return len + 1;
+}
+
+fn arr_pop(arr) {
+    let len = arr_length(arr);
+    if (len == 0) {
+        return null;
+    }
+    let last = arr[len - 1];
+    arr[len - 1] = null;
+    return last;
+}
+
+fn arr_shift(arr) {
+    let len = arr_length(arr);
+    if (len == 0) {
+        return null;
+    }
+    
+    let first = arr[0];
+    let i = 0;
+    
+    while (i < len - 1) {
+        arr[i] = arr[i + 1];
+        i = i + 1;
+    }
+    
+    arr[len - 1] = null;
+    return first;
+}
+
+fn arr_unshift(arr, item) {
+    let len = arr_length(arr);
+    let i = len;
+    
+    while (i > 0) {
+        arr[i] = arr[i - 1];
+        i = i - 1;
+    }
+    
+    arr[0] = item;
+    return len + 1;
+}
+
+// ===== SEARCHING =====
+
+fn arr_indexOf(arr, item) {
+    let len = arr_length(arr);
+    let i = 0;
+    
+    while (i < len) {
+        if (arr[i] == item) {
+            return i;
+        }
+        i = i + 1;
+    }
+    
+    return -1;
+}
+
+fn arr_contains(arr, item) {
+    return arr_indexOf(arr, item) != -1;
+}
+
+fn arr_find(arr, predicate) {
+    let len = arr_length(arr);
+    let i = 0;
+    
+    while (i < len) {
+        if (predicate(arr[i])) {
+            return arr[i];
+        }
+        i = i + 1;
+    }
+    
+    return null;
+}
+
+fn arr_findIndex(arr, predicate) {
+    let len = arr_length(arr);
+    let i = 0;
+    
+    while (i < len) {
+        if (predicate(arr[i])) {
+            return i;
+        }
+        i = i + 1;
+    }
+    
+    return -1;
+}
+
+// ===== TRANSFORMATION =====
+
+fn arr_map(arr, mapper) {
+    let len = arr_length(arr);
+    let result = [];
+    let i = 0;
+    
+    while (i < len) {
+        result[i] = mapper(arr[i]);
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+fn arr_filter(arr, predicate) {
+    let len = arr_length(arr);
+    let result = [];
+    let resultIndex = 0;
+    let i = 0;
+    
+    while (i < len) {
+        if (predicate(arr[i])) {
+            result[resultIndex] = arr[i];
+            resultIndex = resultIndex + 1;
+        }
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+fn arr_reduce(arr, reducer, initialValue) {
+    let len = arr_length(arr);
+    let accumulator = initialValue;
+    let i = 0;
+    
+    while (i < len) {
+        accumulator = reducer(accumulator, arr[i]);
+        i = i + 1;
+    }
+    
+    return accumulator;
+}
+
+// ===== ITERATION =====
+
+fn arr_forEach(arr, callback) {
+    let len = arr_length(arr);
+    let i = 0;
+    
+    while (i < len) {
+        callback(arr[i], i);
+        i = i + 1;
+    }
+}
+
+fn arr_every(arr, predicate) {
+    let len = arr_length(arr);
+    let i = 0;
+    
+    while (i < len) {
+        if (!predicate(arr[i])) {
+            return false;
+        }
+        i = i + 1;
+    }
+    
+    return true;
+}
+
+fn arr_some(arr, predicate) {
+    let len = arr_length(arr);
+    let i = 0;
+    
+    while (i < len) {
+        if (predicate(arr[i])) {
+            return true;
+        }
+        i = i + 1;
+    }
+    
+    return false;
+}
+
+// ===== SORTING =====
+
+fn arr_sort(arr) {
+    let len = arr_length(arr);
+    
+    // Bubble sort
+    let i = 0;
+    while (i < len - 1) {
+        let j = 0;
+        while (j < len - i - 1) {
+            if (arr[j] > arr[j + 1]) {
+                let temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    return arr;
+}
+
+fn arr_reverse(arr) {
+    let len = arr_length(arr);
+    let i = 0;
+    
+    while (i < len / 2) {
+        let temp = arr[i];
+        arr[i] = arr[len - 1 - i];
+        arr[len - 1 - i] = temp;
+        i = i + 1;
+    }
+    
+    return arr;
+}
+
+// ===== SLICING =====
+
+fn arr_slice(arr, start, end) {
+    let result = [];
+    let i = start;
+    let resultIndex = 0;
+    
+    while (i < end && i < arr_length(arr)) {
+        result[resultIndex] = arr[i];
+        resultIndex = resultIndex + 1;
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// ===== COMBINING =====
+
+fn arr_concat(arr1, arr2) {
+    let len1 = arr_length(arr1);
+    let len2 = arr_length(arr2);
+    let result = [];
+    let i = 0;
+    
+    while (i < len1) {
+        result[i] = arr1[i];
+        i = i + 1;
+    }
+    
+    let j = 0;
+    while (j < len2) {
+        result[len1 + j] = arr2[j];
+        j = j + 1;
+    }
+    
+    return result;
+}
+
+fn arr_flatten(arr) {
+    let result = [];
+    let resultIndex = 0;
+    let i = 0;
+    let len = arr_length(arr);
+    
+    while (i < len) {
+        let item = arr[i];
+        
+        // Check if item is array (simplified check)
+        if (typeof(item) == "array") {
+            let subLen = arr_length(item);
+            let j = 0;
+            
+            while (j < subLen) {
+                result[resultIndex] = item[j];
+                resultIndex = resultIndex + 1;
+                j = j + 1;
+            }
+        } else {
+            result[resultIndex] = item;
+            resultIndex = resultIndex + 1;
+        }
+        
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// ===== UNIQUE =====
+
+fn arr_unique(arr) {
+    let len = arr_length(arr);
+    let result = [];
+    let resultIndex = 0;
+    let i = 0;
+    
+    while (i < len) {
+        let item = arr[i];
+        let found = false;
+        let j = 0;
+        
+        while (j < resultIndex) {
+            if (result[j] == item) {
+                found = true;
+                break;
+            }
+            j = j + 1;
+        }
+        
+        if (!found) {
+            result[resultIndex] = item;
+            resultIndex = resultIndex + 1;
+        }
+        
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// ===== MIN/MAX/SUM =====
+
+fn arr_min(arr) {
+    let len = arr_length(arr);
+    if (len == 0) {
+        return null;
+    }
+    
+    let min = arr[0];
+    let i = 1;
+    
+    while (i < len) {
+        if (arr[i] < min) {
+            min = arr[i];
+        }
+        i = i + 1;
+    }
+    
+    return min;
+}
+
+fn arr_max(arr) {
+    let len = arr_length(arr);
+    if (len == 0) {
+        return null;
+    }
+    
+    let max = arr[0];
+    let i = 1;
+    
+    while (i < len) {
+        if (arr[i] > max) {
+            max = arr[i];
+        }
+        i = i + 1;
+    }
+    
+    return max;
+}
+
+fn arr_sum(arr) {
+    let len = arr_length(arr);
+    let sum = 0;
+    let i = 0;
+    
+    while (i < len) {
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    
+    return sum;
+}
+
+fn arr_average(arr) {
+    let len = arr_length(arr);
+    if (len == 0) {
+        return 0;
+    }
+    
+    return arr_sum(arr) / len;
+}
+
+// ===== UTILITY =====
+
+fn arr_isEmpty(arr) {
+    return arr_length(arr) == 0;
+}
+
+fn arr_join(arr, separator) {
+    let len = arr_length(arr);
+    let result = "";
+    let i = 0;
+    
+    while (i < len) {
+        result = result + arr[i];
+        if (i < len - 1) {
+            result = result + separator;
+        }
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+fn arr_fill(size, value) {
+    let arr = [];
+    let i = 0;
+    
+    while (i < size) {
+        arr[i] = value;
+        i = i + 1;
+    }
+    
+    return arr;
+}
+
+fn arr_range(start, end) {
+    let arr = [];
+    let i = start;
+    let index = 0;
+    
+    while (i < end) {
+        arr[index] = i;
+        index = index + 1;
+        i = i + 1;
+    }
+    
+    return arr;
+}

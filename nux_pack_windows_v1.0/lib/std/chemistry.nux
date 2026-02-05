@@ -1,0 +1,162 @@
+# Nux Chemistry Library
+# Molecular modeling and chemical calculations
+
+class Atom {
+    var element;
+    var atomic_number;
+    var mass;
+    var position;
+    var charge;
+    
+    func init(elem, z, m) {
+        this.element = elem;
+        this.atomic_number = z;
+        this.mass = m;
+        this.charge = 0;
+        
+        this.position = mem_alloc_aligned(24, 8);
+    }
+    
+    func set_position(x, y, z) {
+        mem_write64(this.position, x);
+        mem_write64(this.position + 8, y);
+        mem_write64(this.position + 16, z);
+    }
+    
+    func distance_to(other) {
+        var dx = mem_read64(other.position) - mem_read64(this.position);
+        var dy = mem_read64(other.position + 8) - mem_read64(this.position + 8);
+        var dz = mem_read64(other.position + 16) - mem_read64(this.position + 16);
+        
+        return sqrt(dx * dx + dy * dy + dz * dz);
+    }
+}
+
+class Molecule {
+    var atoms;
+    var bonds;
+    var name;
+    
+    func init(mol_name) {
+        this.name = mol_name;
+        this.atoms = new List();
+        this.atoms.init();
+        this.bonds = new List();
+        this.bonds.init();
+    }
+    
+    func add_atom(atom) {
+        this.atoms.append(atom);
+    }
+    
+    func add_bond(atom1_idx, atom2_idx, bond_order) {
+        var bond = new Map();
+        bond.init();
+        bond.put("atom1", atom1_idx);
+        bond.put("atom2", atom2_idx);
+        bond.put("order", bond_order);
+        
+        this.bonds.append(bond);
+    }
+    
+    func molecular_weight() {
+        var total_mass = 0;
+        var i = 0;
+        
+        for (i = 0; i < this.atoms.length(); i = i + 1) {
+            var atom = this.atoms.get(i);
+            total_mass = total_mass + atom.mass;
+        }
+        
+        return total_mass;
+    }
+    
+    func center_of_mass() {
+        var total_mass = this.molecular_weight();
+        var com = mem_alloc_aligned(24, 8);
+        
+        var i = 0;
+        for (i = 0; i < this.atoms.length(); i = i + 1) {
+            var atom = this.atoms.get(i);
+            
+            var x = mem_read64(atom.position);
+            var y = mem_read64(atom.position + 8);
+            var z = mem_read64(atom.position + 16);
+            
+            mem_write64(com, mem_read64(com) + x * atom.mass);
+            mem_write64(com + 8, mem_read64(com + 8) + y * atom.mass);
+            mem_write64(com + 16, mem_read64(com + 16) + z * atom.mass);
+        }
+        
+        mem_write64(com, mem_read64(com) / total_mass);
+        mem_write64(com + 8, mem_read64(com + 8) / total_mass);
+        mem_write64(com + 16, mem_read64(com + 16) / total_mass);
+        
+        return com;
+    }
+}
+
+func ideal_gas_law(pressure, volume, n_moles, temperature) {
+    var R = 8.314;
+    
+    if (pressure == 0) {
+        return n_moles * R * temperature / volume;
+    }
+    if (volume == 0) {
+        return n_moles * R * temperature / pressure;
+    }
+    if (temperature == 0) {
+        return pressure * volume / (n_moles * R);
+    }
+    
+    return pressure * volume / (R * temperature);
+}
+
+func ph_to_concentration(ph) {
+    return pow(10, 0 - ph);
+}
+
+func concentration_to_ph(concentration) {
+    return 0 - log10(concentration);
+}
+
+class PeriodicTable {
+    var elements;
+    
+    func init() {
+        this.elements = new Map();
+        this.elements.init();
+        
+        this.populate();
+    }
+    
+    func populate() {
+        this.add_element("H", 1, 1.008);
+        this.add_element("He", 2, 4.003);
+        this.add_element("C", 6, 12.011);
+        this.add_element("N", 7, 14.007);
+        this.add_element("O", 8, 15.999);
+    }
+    
+    func add_element(symbol, z, mass) {
+        var elem = new Map();
+        elem.init();
+        elem.put("symbol", symbol);
+        elem.put("atomic_number", z);
+        elem.put("mass", mass);
+        
+        this.elements.put(symbol, elem);
+    }
+    
+    func get_element(symbol) {
+        return this.elements.get(symbol);
+    }
+}
+
+func lennard_jones_potential(r, epsilon, sigma) {
+    var term = sigma / r;
+    var term6 = term * term * term * term * term * term;
+    var term12 = term6 * term6;
+    
+    return 4 * epsilon * (term12 - term6);
+}

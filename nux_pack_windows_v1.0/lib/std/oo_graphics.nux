@@ -1,0 +1,38 @@
+# Nux OO Graphics Library
+import "std.graphics";
+
+class Image {
+    var id;
+    var width;
+    var height;
+
+    func create(w, h) {
+        this.width = w;
+        this.height = h;
+        this.id = img_new(w, h);
+    }
+
+    func destroy() {
+        img_delete(this.id);
+    }
+
+    func draw_at(x, y) {
+        draw(this.id, x, y);
+    }
+    
+    func set(x, y, color) {
+        set_pixel(this.id, x, y, color);
+    }
+    
+    func get(x, y) {
+        return get_pixel(this.id, x, y);
+    }
+    
+    func fill_color(c) {
+        fill(this.id, c);
+    }
+    
+    func to_gray() {
+        grayscale(this.id);
+    }
+}

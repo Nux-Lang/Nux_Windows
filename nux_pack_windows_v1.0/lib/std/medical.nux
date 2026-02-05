@@ -1,0 +1,183 @@
+# Nux Medical Imaging Library
+# DICOM and medical image processing
+
+import "std.collections";
+
+class DICOMImage {
+    var width;
+    var height;
+    var bits_per_pixel;
+    var pixel_data;
+    var metadata;
+    
+    func init() {
+        this.metadata = new Map();
+        this.metadata.init();
+    }
+    
+    func load_from_file(filename) {
+        var file = file_open(filename, "rb");
+        
+        # Read DICOM preamble (128 bytes)
+        var preamble = mem_alloc_aligned(128, 8);
+        file_read(file, preamble, 128);
+        
+        # Read DICOM prefix "DICM"
+        var prefix = mem_alloc_aligned(4, 1);
+        file_read(file, prefix, 4);
+        
+        # Parse data elements
+        this.parse_data_elements(file);
+        
+        file_close(file);
+    }
+    
+    func parse_data_elements(file) {
+        for (;;) {
+            var tag = this.read_tag(file);
+            if (tag == 0) {
+                break;
+            }
+            
+            var vr = this.read_vr(file);
+            var length = this.read_length(file, vr);
+            var value = this.read_value(file, length);
+            
+            this.metadata.put(tag, value);
+            
+            # Check for pixel data tag (7FE0,0010)
+            if (tag == 0x7FE00010) {
+                this.pixel_data = value;
+            }
+        }
+    }
+    
+    func read_tag(file) {
+        var tag_bytes = mem_alloc_aligned(4, 1);
+        var bytes_read = file_read(file, tag_bytes, 4);
+        
+        if (bytes_read < 4) {
+            return 0;
+        }
+        
+        var group = mem_read16(tag_bytes);
+        var element = mem_read16(tag_bytes + 2);
+        
+        return (group << 16) | element;
+    }
+    
+    func read_vr(file) {
+        var vr = mem_alloc_aligned(2, 1);
+        file_read(file, vr, 2);
+        return vr;
+    }
+    
+    func read_length(file, vr) {
+        # VR-dependent length reading
+        return file_read32(file);
+    }
+    
+    func read_value(file, length) {
+        var value = mem_alloc_aligned(length, 8);
+        file_read(file, value, length);
+        return value;
+    }
+    
+    func get_patient_name() {
+        return this.metadata.get(0x00100010);
+    }
+    
+    func get_study_date() {
+        return this.metadata.get(0x00080020);
+    }
+    
+    func window_level(window_center, window_width) {
+        var output = mem_alloc_aligned(this.width * this.height, 8);
+        
+        var i = 0;
+        for (i = 0; i < this.width * this.height; i = i + 1) {
+            var pixel = mem_read16(this.pixel_data + i * 2);
+            
+            var min_val = window_center - window_width / 2;
+            var max_val = window_center + window_width / 2;
+            
+            if (pixel < min_val) {
+                pixel = 0;
+            }
+            if (pixel > max_val) {
+                pixel = 255;
+            }
+            if (pixel >= min_val) {
+                if (pixel <= max_val) {
+                    pixel = (pixel - min_val) * 255 / window_width;
+                }
+            }
+            
+            mem_write8(output + i, pixel);
+        }
+        
+        return output;
+    }
+}
+
+class MedicalSegmentation {
+    var image;
+    var labels;
+    
+    func init(img) {
+        this.image = img;
+        this.labels = mem_alloc_aligned(img.width * img.height, 8);
+    }
+    
+    func region_growing(seed_x, seed_y, threshold) {
+        var stack = new List();
+        stack.init();
+        
+        stack.append(seed_x);
+        stack.append(seed_y);
+        
+        var seed_value = mem_read16(this.image.pixel_data + (seed_y * this.image.width + seed_x) * 2);
+        
+        for (;;) {
+            if (stack.length() == 0) {
+                break;
+            }
+            
+            var y = stack.get(stack.length() - 1);
+            stack.remove(stack.length() - 1);
+            var x = stack.get(stack.length() - 1);
+            stack.remove(stack.length() - 1);
+            
+            if (x < 0) { continue; }
+            if (x >= this.image.width) { continue; }
+            if (y < 0) { continue; }
+            if (y >= this.image.height) { continue; }
+            
+            var idx = y * this.image.width + x;
+            if (mem_read8(this.labels + idx) != 0) {
+                continue;
+            }
+            
+            var pixel_value = mem_read16(this.image.pixel_data + idx * 2);
+            var diff = pixel_value - seed_value;
+            if (diff < 0) { diff = 0 - diff; }
+            
+            if (diff <= threshold) {
+                mem_write8(this.labels + idx, 1);
+                
+                stack.append(x - 1);
+                stack.append(y);
+                stack.append(x + 1);
+                stack.append(y);
+                stack.append(x);
+                stack.append(y - 1);
+                stack.append(x);
+                stack.append(y + 1);
+            }
+        }
+    }
+}
+
+func hounsfield_to_density(hu_value) {
+    return (hu_value + 1000) / 1000;
+}

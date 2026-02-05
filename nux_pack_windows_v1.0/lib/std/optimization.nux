@@ -1,0 +1,455 @@
+// Nux Standard Library - Advanced Optimization
+// Linear programming, convex optimization, and metaheuristics
+
+// ===== LINEAR PROGRAMMING =====
+
+fn lp_create(c, A, b, bounds) {
+    // Create LP problem: minimize c^T x subject to Ax <= b
+    return {
+        c: c,  // Objective coefficients
+        A: A,  // Constraint matrix
+        b: b,  // Constraint bounds
+        bounds: bounds  // Variable bounds
+    };
+}
+
+fn lp_simplex(lp) {
+    // Simplex algorithm
+    let m = arr_length(lp.A);
+    let n = arr_length(lp.c);
+    
+    // Create tableau
+    let tableau = [];
+    
+    let i = 0;
+    while (i < m) {
+        let row = arr_clone(lp.A[i]);
+        
+        // Add slack variables
+        let j = 0;
+        while (j < m) {
+            arr_push(row, i == j ? 1 : 0);
+            j = j + 1;
+        }
+        
+        arr_push(row, lp.b[i]);
+        arr_push(tableau, row);
+        i = i + 1;
+    }
+    
+    // Objective row
+    let objRow = arr_clone(lp.c);
+    i = 0;
+    while (i < m) {
+        arr_push(objRow, 0);
+        i = i + 1;
+    }
+    arr_push(objRow, 0);
+    arr_push(tableau, objRow);
+    
+    // Simplex iterations
+    let maxIter = 1000;
+    let iter = 0;
+    
+    while (iter < maxIter) {
+        // Find entering variable (most negative in objective)
+        let entering = lp_findEntering(tableau);
+        
+        if (entering == -1) {
+            break;  // Optimal
+        }
+        
+        // Find leaving variable
+        let leaving = lp_findLeaving(tableau, entering);
+        
+        if (leaving == -1) {
+            return {unbounded: true};
+        }
+        
+        // Pivot
+        lp_pivot(tableau, leaving, entering);
+        
+        iter = iter + 1;
+    }
+    
+    // Extract solution
+    let solution = arr_fill(n, 0);
+    // TODO: Extract basic variables
+    
+    return {
+        solution: solution,
+        value: -tableau[arr_length(tableau) - 1][arr_length(tableau[0]) - 1]
+    };
+}
+
+fn lp_findEntering(tableau) {
+    // Find entering variable
+    let objRow = tableau[arr_length(tableau) - 1];
+    let minValue = 0;
+    let minIndex = -1;
+    
+    let i = 0;
+    while (i < arr_length(objRow) - 1) {
+        if (objRow[i] < minValue) {
+            minValue = objRow[i];
+            minIndex = i;
+        }
+        i = i + 1;
+    }
+    
+    return minIndex;
+}
+
+fn lp_findLeaving(tableau, entering) {
+    // Find leaving variable (minimum ratio test)
+    let minRatio = Infinity;
+    let minIndex = -1;
+    
+    let i = 0;
+    while (i < arr_length(tableau) - 1) {
+        let row = tableau[i];
+        
+        if (row[entering] > 0) {
+            let ratio = row[arr_length(row) - 1] / row[entering];
+            
+            if (ratio < minRatio) {
+                minRatio = ratio;
+                minIndex = i;
+            }
+        }
+        
+        i = i + 1;
+    }
+    
+    return minIndex;
+}
+
+fn lp_pivot(tableau, row, col) {
+    // Perform pivot operation
+    let pivot = tableau[row][col];
+    
+    // Divide pivot row
+    let j = 0;
+    while (j < arr_length(tableau[row])) {
+        tableau[row][j] = tableau[row][j] / pivot;
+        j = j + 1;
+    }
+    
+    // Eliminate column in other rows
+    let i = 0;
+    while (i < arr_length(tableau)) {
+        if (i != row) {
+            let factor = tableau[i][col];
+            
+            j = 0;
+            while (j < arr_length(tableau[i])) {
+                tableau[i][j] = tableau[i][j] - factor * tableau[row][j];
+                j = j + 1;
+            }
+        }
+        
+        i = i + 1;
+    }
+}
+
+// ===== GRADIENT DESCENT =====
+
+fn optimize_gradientDescent(f, grad, x0, learningRate, iterations) {
+    // Gradient descent optimization
+    let x = arr_clone(x0);
+    
+    let iter = 0;
+    while (iter < iterations) {
+        let gradient = grad(x);
+        
+        // Update x
+        let i = 0;
+        while (i < arr_length(x)) {
+            x[i] = x[i] - learningRate * gradient[i];
+            i = i + 1;
+        }
+        
+        iter = iter + 1;
+    }
+    
+    return {
+        solution: x,
+        value: f(x)
+    };
+}
+
+// ===== NEWTON'S METHOD =====
+
+fn optimize_newton(f, grad, hessian, x0, iterations) {
+    // Newton's method
+    let x = arr_clone(x0);
+    
+    let iter = 0;
+    while (iter < iterations) {
+        let g = grad(x);
+        let H = hessian(x);
+        
+        // Solve H * delta = -g
+        let delta = matrix_solve(H, arr_map(g, fn(gi) { return -gi; }));
+        
+        // Update x
+        let i = 0;
+        while (i < arr_length(x)) {
+            x[i] = x[i] + delta[i];
+            i = i + 1;
+        }
+        
+        iter = iter + 1;
+    }
+    
+    return {
+        solution: x,
+        value: f(x)
+    };
+}
+
+// ===== GENETIC ALGORITHM =====
+
+fn ga_optimize(fitness, bounds, popSize, generations) {
+    // Genetic algorithm
+    let dim = arr_length(bounds);
+    
+    // Initialize population
+    let population = [];
+    let i = 0;
+    while (i < popSize) {
+        let individual = [];
+        let j = 0;
+        while (j < dim) {
+            let value = bounds[j][0] + random() * (bounds[j][1] - bounds[j][0]);
+            arr_push(individual, value);
+            j = j + 1;
+        }
+        arr_push(population, individual);
+        i = i + 1;
+    }
+    
+    // Evolution
+    let gen = 0;
+    while (gen < generations) {
+        // Evaluate fitness
+        let fitnesses = arr_map(population, fitness);
+        
+        // Selection
+        let selected = ga_selection(population, fitnesses);
+        
+        // Crossover
+        let offspring = ga_crossover(selected);
+        
+        // Mutation
+        population = ga_mutation(offspring, bounds);
+        
+        gen = gen + 1;
+    }
+    
+    // Return best individual
+    let fitnesses = arr_map(population, fitness);
+    let bestIndex = arr_indexOf(fitnesses, arr_max(fitnesses));
+    
+    return {
+        solution: population[bestIndex],
+        value: fitnesses[bestIndex]
+    };
+}
+
+fn ga_selection(population, fitnesses) {
+    // Tournament selection
+    let selected = [];
+    
+    let i = 0;
+    while (i < arr_length(population)) {
+        let i1 = randomInt(0, arr_length(population));
+        let i2 = randomInt(0, arr_length(population));
+        
+        if (fitnesses[i1] > fitnesses[i2]) {
+            arr_push(selected, population[i1]);
+        } else {
+            arr_push(selected, population[i2]);
+        }
+        
+        i = i + 1;
+    }
+    
+    return selected;
+}
+
+fn ga_crossover(population) {
+    // Uniform crossover
+    let offspring = [];
+    
+    let i = 0;
+    while (i < arr_length(population)) {
+        let p1 = population[i];
+        let p2 = population[(i + 1) % arr_length(population)];
+        
+        let child = [];
+        let j = 0;
+        while (j < arr_length(p1)) {
+            if (random() < 0.5) {
+                arr_push(child, p1[j]);
+            } else {
+                arr_push(child, p2[j]);
+            }
+            j = j + 1;
+        }
+        
+        arr_push(offspring, child);
+        i = i + 1;
+    }
+    
+    return offspring;
+}
+
+fn ga_mutation(population, bounds) {
+    // Gaussian mutation
+    let mutated = [];
+    
+    arr_forEach(population, fn(individual) {
+        let mutant = [];
+        
+        let i = 0;
+        while (i < arr_length(individual)) {
+            let value = individual[i];
+            
+            if (random() < 0.1) {  // Mutation rate
+                value = value + dist_normal(0, 0.1).sample();
+                value = max(bounds[i][0], min(bounds[i][1], value));
+            }
+            
+            arr_push(mutant, value);
+            i = i + 1;
+        }
+        
+        arr_push(mutated, mutant);
+    });
+    
+    return mutated;
+}
+
+// ===== SIMULATED ANNEALING =====
+
+fn sa_optimize(energy, neighbor, x0, initialTemp, coolingRate, iterations) {
+    // Simulated annealing
+    let current = x0;
+    let currentEnergy = energy(current);
+    let best = current;
+    let bestEnergy = currentEnergy;
+    let temp = initialTemp;
+    
+    let iter = 0;
+    while (iter < iterations) {
+        let next = neighbor(current);
+        let nextEnergy = energy(next);
+        
+        let delta = nextEnergy - currentEnergy;
+        
+        if (delta < 0 || random() < exp(-delta / temp)) {
+            current = next;
+            currentEnergy = nextEnergy;
+            
+            if (currentEnergy < bestEnergy) {
+                best = current;
+                bestEnergy = currentEnergy;
+            }
+        }
+        
+        temp = temp * coolingRate;
+        iter = iter + 1;
+    }
+    
+    return {
+        solution: best,
+        value: bestEnergy
+    };
+}
+
+// ===== PARTICLE SWARM OPTIMIZATION =====
+
+fn pso_optimize(fitness, bounds, numParticles, iterations) {
+    // Particle swarm optimization
+    let dim = arr_length(bounds);
+    
+    // Initialize particles
+    let particles = [];
+    let velocities = [];
+    let personalBest = [];
+    let personalBestFitness = [];
+    
+    let i = 0;
+    while (i < numParticles) {
+        let pos = [];
+        let vel = [];
+        
+        let j = 0;
+        while (j < dim) {
+            arr_push(pos, bounds[j][0] + random() * (bounds[j][1] - bounds[j][0]));
+            arr_push(vel, 0);
+            j = j + 1;
+        }
+        
+        arr_push(particles, pos);
+        arr_push(velocities, vel);
+        arr_push(personalBest, arr_clone(pos));
+        arr_push(personalBestFitness, fitness(pos));
+        
+        i = i + 1;
+    }
+    
+    // Find global best
+    let globalBest = personalBest[0];
+    let globalBestFitness = personalBestFitness[0];
+    
+    // PSO iterations
+    let iter = 0;
+    while (iter < iterations) {
+        i = 0;
+        while (i < numParticles) {
+            // Update velocity
+            let j = 0;
+            while (j < dim) {
+                let r1 = random();
+                let r2 = random();
+                
+                velocities[i][j] = 0.7 * velocities[i][j] +
+                                   1.5 * r1 * (personalBest[i][j] - particles[i][j]) +
+                                   1.5 * r2 * (globalBest[j] - particles[i][j]);
+                
+                j = j + 1;
+            }
+            
+            // Update position
+            j = 0;
+            while (j < dim) {
+                particles[i][j] = particles[i][j] + velocities[i][j];
+                particles[i][j] = max(bounds[j][0], min(bounds[j][1], particles[i][j]));
+                j = j + 1;
+            }
+            
+            // Update personal best
+            let fit = fitness(particles[i]);
+            if (fit > personalBestFitness[i]) {
+                personalBest[i] = arr_clone(particles[i]);
+                personalBestFitness[i] = fit;
+                
+                if (fit > globalBestFitness) {
+                    globalBest = arr_clone(particles[i]);
+                    globalBestFitness = fit;
+                }
+            }
+            
+            i = i + 1;
+        }
+        
+        iter = iter + 1;
+    }
+    
+    return {
+        solution: globalBest,
+        value: globalBestFitness
+    };
+}

@@ -1,0 +1,275 @@
+// Nux Module System
+// Import/export and module resolution
+
+// ===== MODULE REGISTRY =====
+
+let MODULE_REGISTRY = {};
+let MODULE_CACHE = {};
+
+// ===== MODULE DEFINITION =====
+
+fn module_define(name, exports) {
+    MODULE_REGISTRY[name] = exports;
+}
+
+fn module_get(name) {
+    return MODULE_REGISTRY[name];
+}
+
+fn module_exists(name) {
+    return MODULE_REGISTRY[name] != null;
+}
+
+// ===== EXPORT =====
+
+let CURRENT_MODULE_EXPORTS = {};
+
+fn export_value(name, value) {
+    CURRENT_MODULE_EXPORTS[name] = value;
+}
+
+fn export_default(value) {
+    CURRENT_MODULE_EXPORTS["default"] = value;
+}
+
+fn export_all(obj) {
+    obj_forEach(obj, fn(key, value) {
+        CURRENT_MODULE_EXPORTS[key] = value;
+    });
+}
+
+// ===== IMPORT =====
+
+fn import_module(path) {
+    // Check cache first
+    if (MODULE_CACHE[path] != null) {
+        return MODULE_CACHE[path];
+    }
+    
+    // Resolve module path
+    let resolvedPath = module_resolve(path);
+    
+    if (resolvedPath == null) {
+        throw new Error("Module not found: " + path);
+    }
+    
+    // Load and execute module
+    let source = file_read(resolvedPath);
+    let exports = module_execute(source, resolvedPath);
+    
+    // Cache module
+    MODULE_CACHE[path] = exports;
+    
+    return exports;
+}
+
+fn import_named(path, names) {
+    let module = import_module(path);
+    let imported = {};
+    
+    arr_forEach(names, fn(name) {
+        if (module[name] == null) {
+            throw new Error("Module " + path + " does not export " + name);
+        }
+        imported[name] = module[name];
+    });
+    
+    return imported;
+}
+
+fn import_default(path) {
+    let module = import_module(path);
+    
+    if (module["default"] == null) {
+        throw new Error("Module " + path + " does not have a default export");
+    }
+    
+    return module["default"];
+}
+
+fn import_all(path) {
+    return import_module(path);
+}
+
+// ===== MODULE RESOLUTION =====
+
+fn module_resolve(path) {
+    // Relative path
+    if (str_startsWith(path, "./") || str_startsWith(path, "../")) {
+        return module_resolveRelative(path);
+    }
+    
+    // Absolute path
+    if (str_startsWith(path, "/")) {
+        return path;
+    }
+    
+    // Standard library
+    if (str_startsWith(path, "std/")) {
+        return module_resolveStd(path);
+    }
+    
+    // Node modules
+    if (str_startsWith(path, "npm:")) {
+        return module_resolveNpm(path);
+    }
+    
+    // Package
+    return module_resolvePackage(path);
+}
+
+fn module_resolveRelative(path) {
+    let currentDir = sys_cwd();
+    let fullPath = path_join(currentDir, path);
+    
+    // Try exact path
+    if (file_exists(fullPath)) {
+        return fullPath;
+    }
+    
+    // Try with .nux extension
+    if (file_exists(fullPath + ".nux")) {
+        return fullPath + ".nux";
+    }
+    
+    // Try as directory with index.nux
+    if (file_exists(path_join(fullPath, "index.nux"))) {
+        return path_join(fullPath, "index.nux");
+    }
+    
+    return null;
+}
+
+fn module_resolveStd(path) {
+    let stdPath = path_join(sys_nuxHome(), "lib", path);
+    
+    if (file_exists(stdPath)) {
+        return stdPath;
+    }
+    
+    if (file_exists(stdPath + ".nux")) {
+        return stdPath + ".nux";
+    }
+    
+    return null;
+}
+
+fn module_resolveNpm(path) {
+    let packageName = str_substring(path, 4);  // Remove "npm:"
+    let nodeModulesPath = path_join(sys_cwd(), "node_modules", packageName);
+    
+    // Read package.json
+    let packageJsonPath = path_join(nodeModulesPath, "package.json");
+    
+    if (!file_exists(packageJsonPath)) {
+        return null;
+    }
+    
+    let packageJson = json_parse(file_read(packageJsonPath));
+    let main = packageJson.main || "index.js";
+    
+    return path_join(nodeModulesPath, main);
+}
+
+fn module_resolvePackage(path) {
+    let nuxModulesPath = path_join(sys_cwd(), "nux_modules", path);
+    
+    if (file_exists(nuxModulesPath + ".nux")) {
+        return nuxModulesPath + ".nux";
+    }
+    
+    if (file_exists(path_join(nuxModulesPath, "index.nux"))) {
+        return path_join(nuxModulesPath, "index.nux");
+    }
+    
+    return null;
+}
+
+// ===== MODULE EXECUTION =====
+
+fn module_execute(source, path) {
+    // Save current exports
+    let prevExports = CURRENT_MODULE_EXPORTS;
+    CURRENT_MODULE_EXPORTS = {};
+    
+    // Compile and execute module
+    let bytecode = compile(source);
+    let vm = vm_create();
+    vm_execute(vm, bytecode);
+    
+    // Get exports
+    let exports = CURRENT_MODULE_EXPORTS;
+    
+    // Restore previous exports
+    CURRENT_MODULE_EXPORTS = prevExports;
+    
+    return exports;
+}
+
+// ===== CIRCULAR DEPENDENCY DETECTION =====
+
+let MODULE_LOADING = {};
+
+fn module_checkCircular(path) {
+    if (MODULE_LOADING[path]) {
+        throw new Error("Circular dependency detected: " + path);
+    }
+}
+
+fn module_markLoading(path) {
+    MODULE_LOADING[path] = true;
+}
+
+fn module_markLoaded(path) {
+    MODULE_LOADING[path] = false;
+}
+
+// ===== MODULE METADATA =====
+
+fn module_getMetadata(path) {
+    return {
+        path: path,
+        exports: obj_keys(MODULE_REGISTRY[path] || {}),
+        cached: MODULE_CACHE[path] != null,
+        loading: MODULE_LOADING[path] || false
+    };
+}
+
+fn module_listLoaded() {
+    return obj_keys(MODULE_CACHE);
+}
+
+fn module_clearCache(path) {
+    if (path) {
+        MODULE_CACHE[path] = null;
+    } else {
+        MODULE_CACHE = {};
+    }
+}
+
+// ===== DYNAMIC IMPORTS =====
+
+fn import_dynamic(path) {
+    return new Promise(fn(resolve, reject) {
+        try {
+            let module = import_module(path);
+            resolve(module);
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+// ===== RE-EXPORTS =====
+
+fn reexport(sourcePath, targetNames) {
+    let module = import_module(sourcePath);
+    
+    if (targetNames) {
+        arr_forEach(targetNames, fn(name) {
+            export_value(name, module[name]);
+        });
+    } else {
+        export_all(module);
+    }
+}

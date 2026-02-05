@@ -1,0 +1,137 @@
+# Nux Atomic Operations Library
+# Lock-free atomic operations using x86 instructions
+
+# Atomic load/store
+func atomic_load(addr) {
+    asm {
+        "MOV RAX, [" addr "]"
+    }
+}
+
+func atomic_store(addr, value) {
+    asm {
+        "MOV [" addr "], " value
+        "MFENCE"
+    }
+}
+
+# Atomic compare-and-swap
+func atomic_cas(addr, expected, desired) {
+    asm {
+        "MOV RAX, " expected
+        "MOV RBX, " desired
+        "LOCK CMPXCHG [" addr "], RBX"
+    }
+}
+
+func atomic_cas_weak(addr, expected, desired) {
+    asm {
+        "MOV RAX, " expected
+        "MOV RBX, " desired
+        "CMPXCHG [" addr "], RBX"
+    }
+}
+
+# Atomic exchange
+func atomic_exchange(addr, value) {
+    asm {
+        "MOV RAX, " value
+        "XCHG [" addr "], RAX"
+    }
+}
+
+# Atomic fetch-and-add
+func atomic_fetch_add(addr, value) {
+    asm {
+        "MOV RAX, " value
+        "LOCK XADD [" addr "], RAX"
+    }
+}
+
+# Atomic fetch-and-sub
+func atomic_fetch_sub(addr, value) {
+    asm {
+        "MOV RAX, " value
+        "NEG RAX"
+        "LOCK XADD [" addr "], RAX"
+    }
+}
+
+# Atomic increment/decrement
+func atomic_inc(addr) {
+    asm {
+        "LOCK INC QWORD [" addr "]"
+    }
+}
+
+func atomic_dec(addr) {
+    asm {
+        "LOCK DEC QWORD [" addr "]"
+    }
+}
+
+# Atomic bitwise operations
+func atomic_and(addr, value) {
+    asm {
+        "MOV RAX, " value
+        "LOCK AND [" addr "], RAX"
+    }
+}
+
+func atomic_or(addr, value) {
+    asm {
+        "MOV RAX, " value
+        "LOCK OR [" addr "], RAX"
+    }
+}
+
+func atomic_xor(addr, value) {
+    asm {
+        "MOV RAX, " value
+        "LOCK XOR [" addr "], RAX"
+    }
+}
+
+# Spinlock implementation
+class Spinlock {
+    var lock_addr;
+    
+    func init() {
+        this.lock_addr = mem_alloc_aligned(8, 8);
+        atomic_store(this.lock_addr, 0);
+    }
+    
+    func acquire() {
+        var expected = 0;
+        var desired = 1;
+        for (;;) {
+            if (atomic_cas(this.lock_addr, expected, desired) == expected) {
+                break;
+            }
+            cpu_pause();
+        }
+    }
+    
+    func release() {
+        atomic_store(this.lock_addr, 0);
+    }
+    
+    func try_acquire() {
+        var expected = 0;
+        var desired = 1;
+        return atomic_cas(this.lock_addr, expected, desired) == expected;
+    }
+}
+
+# Memory ordering
+func atomic_thread_fence() {
+    asm {
+        "MFENCE"
+    }
+}
+
+func atomic_signal_fence() {
+    asm {
+        "NOP"
+    }
+}

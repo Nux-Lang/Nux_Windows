@@ -1,0 +1,125 @@
+# Nux Haskell FFI Library
+# Bindings for Haskell compiler tools
+
+# GHC FFI integration
+func haskell_init() {
+    asm {
+        OP_FFI_HASKELL_INIT
+    }
+}
+
+# Parsec parser combinator
+func haskell_parsec_parse(parser_def, input) {
+    asm {
+        parser_def
+        input
+        OP_FFI_HASKELL_PARSEC_PARSE
+    }
+}
+
+# Megaparsec
+func haskell_megaparsec_parse(parser, input) {
+    asm {
+        parser
+        input
+        OP_FFI_HASKELL_MEGAPARSEC_PARSE
+    }
+}
+
+# Happy parser generator
+func haskell_happy_parse(grammar_file, input) {
+    asm {
+        grammar_file
+        input
+        OP_FFI_HASKELL_HAPPY_PARSE
+    }
+}
+
+# Alex lexer
+func haskell_alex_lex(lexer_file, input) {
+    asm {
+        lexer_file
+        input
+        OP_FFI_HASKELL_ALEX_LEX
+    }
+}
+
+# llvm-hs bindings
+class HaskellLLVM {
+    var module;
+    
+    func init(module_name) {
+        asm {
+            module_name
+            OP_FFI_HASKELL_LLVM_INIT
+        }
+    }
+    
+    func define_function(name, signature, body) {
+        asm {
+            this.module
+            name
+            signature
+            body
+            OP_FFI_HASKELL_LLVM_DEFINE
+        }
+    }
+}
+
+# Call Haskell function
+func call_haskell_function(module_name, func_name, args) {
+    asm {
+        module_name
+        func_name
+        args
+        OP_FFI_CALL_HASKELL
+    }
+}
+
+# Export to Haskell
+func export_to_haskell(func_name, func_ptr, type_sig) {
+    asm {
+        func_name
+        func_ptr
+        type_sig
+        OP_FFI_EXPORT_TO_HASKELL
+    }
+}
+
+# Haskell Maybe type
+class HaskellMaybe {
+    var is_just;
+    var value;
+    
+    func just(val) {
+        this.is_just = 1;
+        this.value = val;
+    }
+    
+    func nothing() {
+        this.is_just = 0;
+    }
+    
+    func from_maybe(default_val) {
+        if (this.is_just == 1) {
+            return this.value;
+        }
+        return default_val;
+    }
+}
+
+# Haskell Either type
+class HaskellEither {
+    var is_right;
+    var value;
+    
+    func left(val) {
+        this.is_right = 0;
+        this.value = val;
+    }
+    
+    func right(val) {
+        this.is_right = 1;
+        this.value = val;
+    }
+}

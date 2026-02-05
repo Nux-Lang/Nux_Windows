@@ -1,0 +1,149 @@
+# Nux Astronomy Library
+# Celestial mechanics and astronomical calculations
+
+class CelestialBody {
+    var name;
+    var mass;
+    var radius;
+    var position;
+    var velocity;
+    
+    func init(body_name, m, r) {
+        this.name = body_name;
+        this.mass = m;
+        this.radius = r;
+        
+        this.position = mem_alloc_aligned(24, 8);
+        this.velocity = mem_alloc_aligned(24, 8);
+    }
+    
+    func set_position(x, y, z) {
+        mem_write64(this.position, x);
+        mem_write64(this.position + 8, y);
+        mem_write64(this.position + 16, z);
+    }
+    
+    func gravitational_force(other) {
+        var G = 6.67430e-11;
+        
+        var dx = mem_read64(other.position) - mem_read64(this.position);
+        var dy = mem_read64(other.position + 8) - mem_read64(this.position + 8);
+        var dz = mem_read64(other.position + 16) - mem_read64(this.position + 16);
+        
+        var r_squared = dx * dx + dy * dy + dz * dz;
+        var r = sqrt(r_squared);
+        
+        var force_magnitude = G * this.mass * other.mass / r_squared;
+        
+        var force = mem_alloc_aligned(24, 8);
+        mem_write64(force, force_magnitude * dx / r);
+        mem_write64(force + 8, force_magnitude * dy / r);
+        mem_write64(force + 16, force_magnitude * dz / r);
+        
+        return force;
+    }
+}
+
+func julian_date(year, month, day, hour, minute, second) {
+    var a = (14 - month) / 12;
+    var y = year + 4800 - a;
+    var m = month + 12 * a - 3;
+    
+    var jdn = day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045;
+    
+    var jd = jdn + (hour - 12) / 24 + minute / 1440 + second / 86400;
+    
+    return jd;
+}
+
+func sidereal_time(jd, longitude) {
+    var T = (jd - 2451545) / 36525;
+    
+    var theta = 280.46061837 + 360.98564736629 * (jd - 2451545) + 
+                0.000387933 * T * T - T * T * T / 38710000;
+    
+    theta = theta % 360;
+    if (theta < 0) {
+        theta = theta + 360;
+    }
+    
+    var lst = theta + longitude;
+    return lst % 360;
+}
+
+func alt_az_to_ra_dec(altitude, azimuth, latitude, lst) {
+    var alt_rad = altitude * 3.14159 / 180;
+    var az_rad = azimuth * 3.14159 / 180;
+    var lat_rad = latitude * 3.14159 / 180;
+    
+    var dec = asin(sin(alt_rad) * sin(lat_rad) + 
+                   cos(alt_rad) * cos(lat_rad) * cos(az_rad));
+    
+    var ha = atan2(0 - sin(az_rad) * cos(alt_rad),
+                   cos(lat_rad) * sin(alt_rad) - sin(lat_rad) * cos(alt_rad) * cos(az_rad));
+    
+    var ra = lst - ha * 180 / 3.14159;
+    
+    var result = mem_alloc_aligned(16, 8);
+    mem_write64(result, ra);
+    mem_write64(result + 8, dec * 180 / 3.14159);
+    return result;
+}
+
+class OrbitalElements {
+    var semi_major_axis;
+    var eccentricity;
+    var inclination;
+    var longitude_ascending_node;
+    var argument_periapsis;
+    var mean_anomaly;
+    
+    func position_at_time(t) {
+        var E = this.solve_kepler(this.mean_anomaly + t);
+        
+        var x = this.semi_major_axis * (cos(E) - this.eccentricity);
+        var y = this.semi_major_axis * sqrt(1 - this.eccentricity * this.eccentricity) * sin(E);
+        
+        var pos = mem_alloc_aligned(24, 8);
+        mem_write64(pos, x);
+        mem_write64(pos + 8, y);
+        mem_write64(pos + 16, 0);
+        
+        return pos;
+    }
+    
+    func solve_kepler(M) {
+        var E = M;
+        var i = 0;
+        
+        for (i = 0; i < 10; i = i + 1) {
+            var delta = E - this.eccentricity * sin(E) - M;
+            E = E - delta / (1 - this.eccentricity * cos(E));
+        }
+        
+        return E;
+    }
+}
+
+func sun_position(jd) {
+    var n = jd - 2451545;
+    var L = 280.460 + 0.9856474 * n;
+    var g = 357.528 + 0.9856003 * n;
+    
+    L = L % 360;
+    g = g % 360;
+    
+    var lambda = L + 1.915 * sin(g * 3.14159 / 180) + 
+                 0.020 * sin(2 * g * 3.14159 / 180);
+    
+    var epsilon = 23.439 - 0.0000004 * n;
+    
+    var ra = atan2(cos(epsilon * 3.14159 / 180) * sin(lambda * 3.14159 / 180),
+                   cos(lambda * 3.14159 / 180));
+    var dec = asin(sin(epsilon * 3.14159 / 180) * sin(lambda * 3.14159 / 180));
+    
+    var result = mem_alloc_aligned(16, 8);
+    mem_write64(result, ra * 180 / 3.14159);
+    mem_write64(result + 8, dec * 180 / 3.14159);
+    return result;
+}

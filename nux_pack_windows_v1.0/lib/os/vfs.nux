@@ -1,0 +1,508 @@
+# Nux Virtual File System Library
+# File system abstraction and common operations
+
+import "os.kernel";
+
+# ============================================================
+# INODE TYPES
+# ============================================================
+
+var S_IFREG = 0x8000;
+var S_IFDIR = 0x4000;
+var S_IFCHR = 0x2000;
+var S_IFBLK = 0x6000;
+var S_IFLNK = 0xA000;
+var S_IFIFO = 0x1000;
+var S_IFSOCK = 0xC000;
+
+# ============================================================
+# INODE
+# ============================================================
+
+class Inode {
+    var ino;
+    var mode;
+    var uid;
+    var gid;
+    var size;
+    var atime;
+    var mtime;
+    var ctime;
+    var nlink;
+    var blocks;
+    var ops;
+    var sb;
+    var private_data;
+    
+    func init(inode_num) {
+        this.ino = inode_num;
+        this.mode = 0;
+        this.uid = 0;
+        this.gid = 0;
+        this.size = 0;
+        this.nlink = 1;
+        this.blocks = new List();
+        this.blocks.init();
+    }
+    
+    func is_dir() { return (this.mode & 0xF000) == S_IFDIR; }
+    func is_reg() { return (this.mode & 0xF000) == S_IFREG; }
+    func is_chr() { return (this.mode & 0xF000) == S_IFCHR; }
+    func is_blk() { return (this.mode & 0xF000) == S_IFBLK; }
+    func is_lnk() { return (this.mode & 0xF000) == S_IFLNK; }
+}
+
+class InodeOps {
+    var lookup;
+    var create;
+    var mkdir;
+    var rmdir;
+    var unlink;
+    var rename;
+    var readlink;
+    var symlink;
+    
+    func init() {
+        this.lookup = 0;
+        this.create = 0;
+        this.mkdir = 0;
+    }
+}
+
+# ============================================================
+# DENTRY (Directory Entry)
+# ============================================================
+
+class Dentry {
+    var name;
+    var inode;
+    var parent;
+    var children;
+    var mounted;
+    
+    func init(entry_name, ino) {
+        this.name = entry_name;
+        this.inode = ino;
+        this.parent = 0;
+        this.children = new List();
+        this.children.init();
+        this.mounted = 0;
+    }
+    
+    func add_child(child) {
+        child.parent = this;
+        this.children.append(child);
+    }
+    
+    func find_child(name) {
+        var i = 0;
+        for (i = 0; i < this.children.length(); i = i + 1) {
+            if (this.children.get(i).name == name) {
+                return this.children.get(i);
+            }
+        }
+        return 0;
+    }
+    
+    func get_path() {
+        var path = "";
+        var current = this;
+        while (current != 0) {
+            path = "/" + current.name + path;
+            current = current.parent;
+        }
+        if (path == "") { path = "/"; }
+        return path;
+    }
+}
+
+# ============================================================
+# FILE OPERATIONS
+# ============================================================
+
+class FileOps {
+    var open;
+    var close;
+    var read;
+    var write;
+    var seek;
+    var ioctl;
+    var mmap;
+    var readdir;
+    
+    func init() {
+        this.open = 0;
+        this.close = 0;
+        this.read = 0;
+        this.write = 0;
+        this.seek = 0;
+    }
+}
+
+class File {
+    var dentry;
+    var inode;
+    var position;
+    var flags;
+    var ops;
+    var ref_count;
+    
+    func init(d, f) {
+        this.dentry = d;
+        this.inode = d.inode;
+        this.position = 0;
+        this.flags = f;
+        this.ref_count = 1;
+    }
+    
+    func read(buffer, count) {
+        if (this.ops != 0 && this.ops.read != 0) {
+            return this.ops.read(this, buffer, count);
+        }
+        return -1;
+    }
+    
+    func write(buffer, count) {
+        if (this.ops != 0 && this.ops.write != 0) {
+            return this.ops.write(this, buffer, count);
+        }
+        return -1;
+    }
+    
+    func seek(offset, whence) {
+        if (whence == 0) {  # SEEK_SET
+            this.position = offset;
+        } else if (whence == 1) {  # SEEK_CUR
+            this.position = this.position + offset;
+        } else if (whence == 2) {  # SEEK_END
+            this.position = this.inode.size + offset;
+        }
+        return this.position;
+    }
+}
+
+# ============================================================
+# SUPERBLOCK
+# ============================================================
+
+class SuperblockOps {
+    var alloc_inode;
+    var destroy_inode;
+    var write_inode;
+    var sync_fs;
+    var statfs;
+    
+    func init() {}
+}
+
+class Superblock {
+    var dev;
+    var blocksize;
+    var maxbytes;
+    var fs_type;
+    var root;
+    var ops;
+    var inodes;
+    var dirty;
+    
+    func init(device, blk_size) {
+        this.dev = device;
+        this.blocksize = blk_size;
+        this.inodes = new Map();
+        this.inodes.init();
+        this.dirty = 0;
+    }
+    
+    func get_inode(ino) {
+        if (this.inodes.has(ino)) {
+            return this.inodes.get(ino);
+        }
+        return 0;
+    }
+    
+    func add_inode(inode) {
+        this.inodes.put(inode.ino, inode);
+    }
+}
+
+# ============================================================
+# FILE SYSTEM TYPE
+# ============================================================
+
+class FileSystemType {
+    var name;
+    var flags;
+    var mount;
+    var unmount;
+    
+    func init(fs_name) {
+        this.name = fs_name;
+        this.flags = 0;
+    }
+}
+
+# ============================================================
+# VFS CORE
+# ============================================================
+
+class VFS {
+    var root;
+    var mounts;
+    var filesystems;
+    var next_ino;
+    
+    func init() {
+        this.mounts = new List();
+        this.mounts.init();
+        this.filesystems = new Map();
+        this.filesystems.init();
+        this.next_ino = 1;
+    }
+    
+    func register_fs(fs_type) {
+        this.filesystems.put(fs_type.name, fs_type);
+    }
+    
+    func mount(device, mountpoint, fs_name, flags) {
+        var fs_type = this.filesystems.get(fs_name);
+        if (fs_type == 0) { return -1; }
+        
+        var sb = fs_type.mount(device, flags);
+        if (sb == 0) { return -1; }
+        
+        var mount_entry = new Map();
+        mount_entry.init();
+        mount_entry.put("device", device);
+        mount_entry.put("mountpoint", mountpoint);
+        mount_entry.put("superblock", sb);
+        mount_entry.put("fs_type", fs_type);
+        
+        this.mounts.append(mount_entry);
+        
+        if (mountpoint == "/") {
+            this.root = sb.root;
+        }
+        
+        return 0;
+    }
+    
+    func unmount(mountpoint) {
+        var i = 0;
+        for (i = 0; i < this.mounts.length(); i = i + 1) {
+            var m = this.mounts.get(i);
+            if (m.get("mountpoint") == mountpoint) {
+                var fs_type = m.get("fs_type");
+                if (fs_type.unmount != 0) {
+                    fs_type.unmount(m.get("superblock"));
+                }
+                this.mounts.remove(i);
+                return 0;
+            }
+        }
+        return -1;
+    }
+    
+    func lookup(path) {
+        if (path == "/") { return this.root; }
+        
+        var parts = this.split_path(path);
+        var current = this.root;
+        
+        var i = 0;
+        for (i = 0; i < parts.length(); i = i + 1) {
+            var part = parts.get(i);
+            if (part == "" || part == ".") { continue; }
+            if (part == "..") {
+                if (current.parent != 0) {
+                    current = current.parent;
+                }
+                continue;
+            }
+            
+            current = current.find_child(part);
+            if (current == 0) { return 0; }
+            
+            # Check for mount point
+            if (current.mounted != 0) {
+                current = current.mounted;
+            }
+        }
+        
+        return current;
+    }
+    
+    func split_path(path) {
+        var parts = new List();
+        parts.init();
+        var current = "";
+        var i = 0;
+        for (i = 0; i < strlen(path); i = i + 1) {
+            var c = char_at(path, i);
+            if (c == "/") {
+                if (current != "") {
+                    parts.append(current);
+                    current = "";
+                }
+            } else {
+                current = current + c;
+            }
+        }
+        if (current != "") {
+            parts.append(current);
+        }
+        return parts;
+    }
+    
+    func open(path, flags) {
+        var dentry = this.lookup(path);
+        if (dentry == 0) {
+            if (flags & 64) {  # O_CREAT
+                dentry = this.create(path, S_IFREG | 0644);
+            } else {
+                return 0;
+            }
+        }
+        
+        var f = new File();
+        f.init(dentry, flags);
+        return f;
+    }
+    
+    func create(path, mode) {
+        var parts = this.split_path(path);
+        var filename = parts.get(parts.length() - 1);
+        parts.pop();
+        
+        var parent_path = "/" + this.join_path(parts);
+        var parent = this.lookup(parent_path);
+        if (parent == 0) { return 0; }
+        
+        var inode = new Inode();
+        inode.init(this.next_ino);
+        this.next_ino = this.next_ino + 1;
+        inode.mode = mode;
+        
+        var dentry = new Dentry();
+        dentry.init(filename, inode);
+        parent.add_child(dentry);
+        
+        return dentry;
+    }
+    
+    func mkdir(path, mode) {
+        return this.create(path, S_IFDIR | mode);
+    }
+    
+    func unlink(path) {
+        var dentry = this.lookup(path);
+        if (dentry == 0) { return -1; }
+        if (dentry.inode.is_dir()) { return -1; }
+        
+        var parent = dentry.parent;
+        var i = 0;
+        for (i = 0; i < parent.children.length(); i = i + 1) {
+            if (parent.children.get(i) == dentry) {
+                parent.children.remove(i);
+                break;
+            }
+        }
+        
+        dentry.inode.nlink = dentry.inode.nlink - 1;
+        return 0;
+    }
+    
+    func rmdir(path) {
+        var dentry = this.lookup(path);
+        if (dentry == 0) { return -1; }
+        if (dentry.inode.is_dir() == 0) { return -1; }
+        if (dentry.children.length() > 0) { return -1; }
+        
+        return this.unlink(path);
+    }
+    
+    func join_path(parts) {
+        var result = "";
+        var i = 0;
+        for (i = 0; i < parts.length(); i = i + 1) {
+            if (i > 0) { result = result + "/"; }
+            result = result + parts.get(i);
+        }
+        return result;
+    }
+}
+
+# ============================================================
+# RAMFS
+# ============================================================
+
+class RamFS {
+    var fs_type;
+    
+    func init() {
+        this.fs_type = new FileSystemType();
+        this.fs_type.init("ramfs");
+        this.fs_type.mount = this.do_mount;
+    }
+    
+    func do_mount(device, flags) {
+        var sb = new Superblock();
+        sb.init(device, 4096);
+        
+        var root_inode = new Inode();
+        root_inode.init(1);
+        root_inode.mode = S_IFDIR | 0755;
+        
+        sb.root = new Dentry();
+        sb.root.init("", root_inode);
+        sb.add_inode(root_inode);
+        
+        return sb;
+    }
+}
+
+class RamFileData {
+    var data;
+    var size;
+    
+    func init() {
+        this.data = new List();
+        this.data.init();
+        this.size = 0;
+    }
+    
+    func read(offset, count) {
+        var result = new List();
+        result.init();
+        var i = offset;
+        while (i < this.size && i < offset + count) {
+            result.append(this.data.get(i));
+            i = i + 1;
+        }
+        return result;
+    }
+    
+    func write(offset, buffer) {
+        var i = 0;
+        for (i = 0; i < buffer.length(); i = i + 1) {
+            var pos = offset + i;
+            while (this.data.length() <= pos) {
+                this.data.append(0);
+            }
+            this.data.set(pos, buffer.get(i));
+        }
+        if (offset + buffer.length() > this.size) {
+            this.size = offset + buffer.length();
+        }
+        return buffer.length();
+    }
+}
+
+func strlen(s) {
+    var len = 0;
+    # Count characters
+    return len;
+}
+
+func char_at(s, idx) {
+    return "/";
+}

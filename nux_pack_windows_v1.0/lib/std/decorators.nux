@@ -1,0 +1,358 @@
+// Nux Decorators and Metaprogramming
+// Python/TypeScript-style decorators
+
+// ===== DECORATOR SYSTEM =====
+
+fn decorator(fn) {
+    return fn;
+}
+
+// ===== COMMON DECORATORS =====
+
+// @memoize - Cache function results
+fn memoize(fn) {
+    let cache = {};
+    
+    return fn(...args) {
+        let key = json_stringify(args);
+        
+        if (cache[key] != null) {
+            return cache[key];
+        }
+        
+        let result = fn(...args);
+        cache[key] = result;
+        return result;
+    };
+}
+
+// @debounce - Delay function execution
+fn debounce(fn, delayMs) {
+    let timeoutId = null;
+    
+    return fn(...args) {
+        if (timeoutId != null) {
+            clearTimeout(timeoutId);
+        }
+        
+        timeoutId = setTimeout(fn() {
+            fn(...args);
+        }, delayMs);
+    };
+}
+
+// @throttle - Limit function execution rate
+fn throttle(fn, intervalMs) {
+    let lastCall = 0;
+    
+    return fn(...args) {
+        let now = date_now();
+        
+        if (now - lastCall >= intervalMs) {
+            lastCall = now;
+            return fn(...args);
+        }
+    };
+}
+
+// @retry - Retry on failure
+fn retry(maxAttempts, delayMs) {
+    return fn(fn) {
+        return fn(...args) {
+            let attempts = 0;
+            
+            while (attempts < maxAttempts) {
+                try {
+                    return fn(...args);
+                } catch (e) {
+                    attempts = attempts + 1;
+                    
+                    if (attempts >= maxAttempts) {
+                        throw e;
+                    }
+                    
+                    sleep(delayMs);
+                }
+            }
+        };
+    };
+}
+
+// @timeout - Add timeout to function
+fn timeout_decorator(ms) {
+    return fn(fn) {
+        return fn(...args) {
+            return timeout(
+                new Promise(fn(resolve, reject) {
+                    resolve(fn(...args));
+                }),
+                ms
+            );
+        };
+    };
+}
+
+// @log - Log function calls
+fn log(fn) {
+    return fn(...args) {
+        print("Calling " + fn.name + " with args: " + json_stringify(args));
+        let result = fn(...args);
+        print("Result: " + json_stringify(result));
+        return result;
+    };
+}
+
+// @trace - Trace execution time
+fn trace(fn) {
+    return fn(...args) {
+        let start = date_now();
+        let result = fn(...args);
+        let end = date_now();
+        print(fn.name + " took " + (end - start) + "ms");
+        return result;
+    };
+}
+
+// @validate - Validate arguments
+fn validate(schema) {
+    return fn(fn) {
+        return fn(...args) {
+            // Validate args against schema
+            let i = 0;
+            while (i < arr_length(schema)) {
+                let validator = schema[i];
+                
+                if (!validator(args[i])) {
+                    throw new ValidationError("Argument " + i + " failed validation");
+                }
+                
+                i = i + 1;
+            }
+            
+            return fn(...args);
+        };
+    };
+}
+
+// @deprecated - Mark as deprecated
+fn deprecated(message) {
+    return fn(fn) {
+        return fn(...args) {
+            print("Warning: " + fn.name + " is deprecated. " + message);
+            return fn(...args);
+        };
+    };
+}
+
+// @singleton - Ensure single instance
+fn singleton(Class) {
+    let instance = null;
+    
+    return class {
+        fn constructor(...args) {
+            if (instance == null) {
+                instance = new Class(...args);
+            }
+            return instance;
+        }
+    };
+}
+
+// @readonly - Make property readonly
+fn readonly(target, property) {
+    let value = target[property];
+    
+    Object.defineProperty(target, property, {
+        get: fn() { return value; },
+        set: fn(newValue) {
+            throw new Error("Property " + property + " is readonly");
+        }
+    });
+}
+
+// @sealed - Prevent modifications
+fn sealed(Class) {
+    Object.seal(Class.prototype);
+    return Class;
+}
+
+// @frozen - Freeze object
+fn frozen(Class) {
+    Object.freeze(Class.prototype);
+    return Class;
+}
+
+// ===== PROPERTY DECORATORS =====
+
+fn property(getter, setter) {
+    return {
+        get: getter,
+        set: setter
+    };
+}
+
+fn computed(fn) {
+    let cache = null;
+    let dirty = true;
+    
+    return {
+        get: fn() {
+            if (dirty) {
+                cache = fn();
+                dirty = false;
+            }
+            return cache;
+        },
+        invalidate: fn() {
+            dirty = true;
+        }
+    };
+}
+
+// ===== METHOD DECORATORS =====
+
+fn before(beforeFn) {
+    return fn(fn) {
+        return fn(...args) {
+            beforeFn(...args);
+            return fn(...args);
+        };
+    };
+}
+
+fn after(afterFn) {
+    return fn(fn) {
+        return fn(...args) {
+            let result = fn(...args);
+            afterFn(result);
+            return result;
+        };
+    };
+}
+
+fn around(aroundFn) {
+    return fn(fn) {
+        return fn(...args) {
+            return aroundFn(fn, args);
+        };
+    };
+}
+
+// ===== ASPECT-ORIENTED PROGRAMMING =====
+
+class Aspect {
+    fn constructor() {
+        this.beforeAdvice = [];
+        this.afterAdvice = [];
+        this.aroundAdvice = [];
+    }
+    
+    fn before(pointcut, advice) {
+        arr_push(this.beforeAdvice, {pointcut: pointcut, advice: advice});
+    }
+    
+    fn after(pointcut, advice) {
+        arr_push(this.afterAdvice, {pointcut: pointcut, advice: advice});
+    }
+    
+    fn around(pointcut, advice) {
+        arr_push(this.aroundAdvice, {pointcut: pointcut, advice: advice});
+    }
+    
+    fn weave(target) {
+        let methods = obj_keys(target);
+        
+        arr_forEach(methods, fn(method) {
+            let original = target[method];
+            
+            if (typeof(original) == "function") {
+                target[method] = this._createProxy(method, original);
+            }
+        });
+    }
+    
+    fn _createProxy(methodName, original) {
+        let self = this;
+        
+        return fn(...args) {
+            // Before advice
+            arr_forEach(self.beforeAdvice, fn(advice) {
+                if (advice.pointcut(methodName)) {
+                    advice.advice(methodName, args);
+                }
+            });
+            
+            // Around advice
+            let proceed = fn() { return original(...args); };
+            
+            arr_forEach(self.aroundAdvice, fn(advice) {
+                if (advice.pointcut(methodName)) {
+                    proceed = fn() {
+                        return advice.advice(methodName, args, proceed);
+                    };
+                }
+            });
+            
+            let result = proceed();
+            
+            // After advice
+            arr_forEach(self.afterAdvice, fn(advice) {
+                if (advice.pointcut(methodName)) {
+                    advice.advice(methodName, result);
+                }
+            });
+            
+            return result;
+        };
+    }
+}
+
+// ===== REFLECTION =====
+
+fn reflect_getType(value) {
+    return typeof(value);
+}
+
+fn reflect_hasProperty(obj, prop) {
+    return obj[prop] != null;
+}
+
+fn reflect_getProperty(obj, prop) {
+    return obj[prop];
+}
+
+fn reflect_setProperty(obj, prop, value) {
+    obj[prop] = value;
+}
+
+fn reflect_getMethods(obj) {
+    let methods = [];
+    
+    obj_forEach(obj, fn(key, value) {
+        if (typeof(value) == "function") {
+            arr_push(methods, key);
+        }
+    });
+    
+    return methods;
+}
+
+fn reflect_getProperties(obj) {
+    let properties = [];
+    
+    obj_forEach(obj, fn(key, value) {
+        if (typeof(value) != "function") {
+            arr_push(properties, key);
+        }
+    });
+    
+    return properties;
+}
+
+fn reflect_invoke(obj, method, args) {
+    return obj[method](...args);
+}
+
+fn reflect_construct(Class, args) {
+    return new Class(...args);
+}

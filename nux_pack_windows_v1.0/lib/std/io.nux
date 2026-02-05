@@ -1,0 +1,17 @@
+# Nux Standard I/O Library
+
+func std_print(val) {
+    print(val);
+}
+
+func std_println(val) {
+    println(val);
+}
+
+func std_read_int() {
+    return input();
+}
+
+func std_sleep(ms) {
+    sleep(ms);
+}

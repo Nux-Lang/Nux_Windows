@@ -1,0 +1,227 @@
+# Nux Data Science Library
+# Statistical analysis and data processing
+
+import "ai.tensor";
+
+# Descriptive statistics
+func mean(data, n) {
+    var sum = 0;
+    var i = 0;
+    for (i = 0; i < n; i = i + 1) {
+        sum = sum + mem_read64(data + i * 8);
+    }
+    return sum / n;
+}
+
+func median(data, n) {
+    # Assumes data is sorted
+    if (n % 2 == 0) {
+        var mid1 = mem_read64(data + (n / 2 - 1) * 8);
+        var mid2 = mem_read64(data + (n / 2) * 8);
+        return (mid1 + mid2) / 2;
+    }
+    return mem_read64(data + (n / 2) * 8);
+}
+
+func variance(data, n) {
+    var m = mean(data, n);
+    var sum_sq = 0;
+    var i = 0;
+    
+    for (i = 0; i < n; i = i + 1) {
+        var diff = mem_read64(data + i * 8) - m;
+        sum_sq = sum_sq + diff * diff;
+    }
+    
+    return sum_sq / n;
+}
+
+func std_dev(data, n) {
+    return sqrt(variance(data, n));
+}
+
+func covariance(x, y, n) {
+    var mean_x = mean(x, n);
+    var mean_y = mean(y, n);
+    var sum = 0;
+    var i = 0;
+    
+    for (i = 0; i < n; i = i + 1) {
+        var dx = mem_read64(x + i * 8) - mean_x;
+        var dy = mem_read64(y + i * 8) - mean_y;
+        sum = sum + dx * dy;
+    }
+    
+    return sum / n;
+}
+
+func correlation(x, y, n) {
+    var cov = covariance(x, y, n);
+    var std_x = std_dev(x, n);
+    var std_y = std_dev(y, n);
+    return cov / (std_x * std_y);
+}
+
+# Linear regression
+class LinearRegression {
+    var slope;
+    var intercept;
+    
+    func fit(x, y, n) {
+        var mean_x = mean(x, n);
+        var mean_y = mean(y, n);
+        
+        var num = 0;
+        var den = 0;
+        var i = 0;
+        
+        for (i = 0; i < n; i = i + 1) {
+            var xi = mem_read64(x + i * 8);
+            var yi = mem_read64(y + i * 8);
+            num = num + (xi - mean_x) * (yi - mean_y);
+            den = den + (xi - mean_x) * (xi - mean_x);
+        }
+        
+        this.slope = num / den;
+        this.intercept = mean_y - this.slope * mean_x;
+    }
+    
+    func predict(x) {
+        return this.slope * x + this.intercept;
+    }
+}
+
+# K-means clustering
+class KMeans {
+    var k;
+    var centroids;
+    var labels;
+    
+    func init(num_clusters) {
+        this.k = num_clusters;
+    }
+    
+    func fit(data, n_samples, n_features, max_iter) {
+        # Initialize centroids randomly
+        this.centroids = mem_alloc_aligned(this.k * n_features * 8, 64);
+        this.labels = mem_alloc_aligned(n_samples * 8, 8);
+        
+        var iter = 0;
+        for (iter = 0; iter < max_iter; iter = iter + 1) {
+            # Assign points to nearest centroid
+            this.assign_clusters(data, n_samples, n_features);
+            
+            # Update centroids
+            this.update_centroids(data, n_samples, n_features);
+        }
+    }
+    
+    func assign_clusters(data, n_samples, n_features) {
+        var i = 0;
+        for (i = 0; i < n_samples; i = i + 1) {
+            var min_dist = 999999999;
+            var best_cluster = 0;
+            
+            var k_idx = 0;
+            for (k_idx = 0; k_idx < this.k; k_idx = k_idx + 1) {
+                var dist = this.euclidean_distance(
+                    data + i * n_features * 8,
+                    this.centroids + k_idx * n_features * 8,
+                    n_features
+                );
+                
+                if (dist < min_dist) {
+                    min_dist = dist;
+                    best_cluster = k_idx;
+                }
+            }
+            
+            mem_write64(this.labels + i * 8, best_cluster);
+        }
+    }
+    
+    func update_centroids(data, n_samples, n_features) {
+        var k_idx = 0;
+        for (k_idx = 0; k_idx < this.k; k_idx = k_idx + 1) {
+            var count = 0;
+            
+            # Zero out centroid
+            var f = 0;
+            for (f = 0; f < n_features; f = f + 1) {
+                mem_write64(this.centroids + (k_idx * n_features + f) * 8, 0);
+            }
+            
+            # Sum all points in cluster
+            var i = 0;
+            for (i = 0; i < n_samples; i = i + 1) {
+                if (mem_read64(this.labels + i * 8) == k_idx) {
+                    count = count + 1;
+                    for (f = 0; f < n_features; f = f + 1) {
+                        var val = mem_read64(data + (i * n_features + f) * 8);
+                        var cent = mem_read64(this.centroids + (k_idx * n_features + f) * 8);
+                        mem_write64(this.centroids + (k_idx * n_features + f) * 8, cent + val);
+                    }
+                }
+            }
+            
+            # Average
+            if (count > 0) {
+                for (f = 0; f < n_features; f = f + 1) {
+                    var cent = mem_read64(this.centroids + (k_idx * n_features + f) * 8);
+                    mem_write64(this.centroids + (k_idx * n_features + f) * 8, cent / count);
+                }
+            }
+        }
+    }
+    
+    func euclidean_distance(a, b, n) {
+        var sum = 0;
+        var i = 0;
+        for (i = 0; i < n; i = i + 1) {
+            var diff = mem_read64(a + i * 8) - mem_read64(b + i * 8);
+            sum = sum + diff * diff;
+        }
+        return sqrt(sum);
+    }
+}
+
+# Principal Component Analysis
+class PCA {
+    var n_components;
+    var components;
+    var mean;
+    
+    func init(n_comp) {
+        this.n_components = n_comp;
+    }
+    
+    func fit(data, n_samples, n_features) {
+        # Compute mean
+        this.mean = mem_alloc_aligned(n_features * 8, 8);
+        var f = 0;
+        for (f = 0; f < n_features; f = f + 1) {
+            var sum = 0;
+            var i = 0;
+            for (i = 0; i < n_samples; i = i + 1) {
+                sum = sum + mem_read64(data + (i * n_features + f) * 8);
+            }
+            mem_write64(this.mean + f * 8, sum / n_samples);
+        }
+        
+        # Compute covariance matrix
+        # ... (SVD or eigendecomposition)
+    }
+}
+
+# Hypothesis testing
+func t_test(sample1, n1, sample2, n2) {
+    var mean1 = mean(sample1, n1);
+    var mean2 = mean(sample2, n2);
+    var var1 = variance(sample1, n1);
+    var var2 = variance(sample2, n2);
+    
+    var pooled_var = ((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2);
+    var se = sqrt(pooled_var * (1 / n1 + 1 / n2));
+    
+    return (mean1 - mean2) / se;
+}

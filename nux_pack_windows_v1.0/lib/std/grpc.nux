@@ -1,0 +1,297 @@
+// Nux Standard Library - Protocol Buffers & gRPC
+// High-performance serialization and RPC
+
+// ===== PROTOBUF ENCODING =====
+
+fn protobuf_encodeVarint(value) {
+    // Encode varint
+    let bytes = [];
+    
+    while (value > 127) {
+        arr_push(bytes, (value & 0x7F) | 0x80);
+        value = value >> 7;
+    }
+    
+    arr_push(bytes, value & 0x7F);
+    return bytes;
+}
+
+fn protobuf_decodeVarint(bytes, offset) {
+    // Decode varint
+    let value = 0;
+    let shift = 0;
+    let i = offset;
+    
+    while (i < arr_length(bytes)) {
+        let byte = bytes[i];
+        value = value | ((byte & 0x7F) << shift);
+        
+        if ((byte & 0x80) == 0) {
+            return {value: value, nextOffset: i + 1};
+        }
+        
+        shift = shift + 7;
+        i = i + 1;
+    }
+    
+    return {value: value, nextOffset: i};
+}
+
+fn protobuf_encodeField(fieldNumber, wireType, value) {
+    // Encode field
+    let tag = (fieldNumber << 3) | wireType;
+    let bytes = protobuf_encodeVarint(tag);
+    
+    if (wireType == 0) {  // Varint
+        bytes = arr_concat(bytes, protobuf_encodeVarint(value));
+    } else if (wireType == 2) {  // Length-delimited
+        let len = arr_length(value);
+        bytes = arr_concat(bytes, protobuf_encodeVarint(len));
+        bytes = arr_concat(bytes, value);
+    }
+    
+    return bytes;
+}
+
+fn protobuf_encode(message, schema) {
+    // Encode message
+    let bytes = [];
+    let fields = obj_keys(schema.fields);
+    
+    arr_forEach(fields, fn(fieldName) {
+        let field = schema.fields[fieldName];
+        let value = message[fieldName];
+        
+        if (value != null) {
+            let encoded = protobuf_encodeField(
+                field.number,
+                field.wireType,
+                value
+            );
+            bytes = arr_concat(bytes, encoded);
+        }
+    });
+    
+    return bytes;
+}
+
+fn protobuf_decode(bytes, schema) {
+    // Decode message
+    let message = {};
+    let offset = 0;
+    
+    while (offset < arr_length(bytes)) {
+        let tagResult = protobuf_decodeVarint(bytes, offset);
+        let tag = tagResult.value;
+        offset = tagResult.nextOffset;
+        
+        let fieldNumber = tag >> 3;
+        let wireType = tag & 0x7;
+        
+        // Find field in schema
+        let fieldName = null;
+        let fields = obj_keys(schema.fields);
+        
+        arr_forEach(fields, fn(name) {
+            if (schema.fields[name].number == fieldNumber) {
+                fieldName = name;
+            }
+        });
+        
+        if (fieldName) {
+            if (wireType == 0) {  // Varint
+                let valueResult = protobuf_decodeVarint(bytes, offset);
+                message[fieldName] = valueResult.value;
+                offset = valueResult.nextOffset;
+            } else if (wireType == 2) {  // Length-delimited
+                let lenResult = protobuf_decodeVarint(bytes, offset);
+                let len = lenResult.value;
+                offset = lenResult.nextOffset;
+                
+                message[fieldName] = arr_slice(bytes, offset, offset + len);
+                offset = offset + len;
+            }
+        }
+    }
+    
+    return message;
+}
+
+// ===== GRPC CLIENT =====
+
+fn grpc_client(host, port) {
+    // Create gRPC client
+    return {
+        host: host,
+        port: port,
+        metadata: {}
+    };
+}
+
+fn grpc_call(client, service, method, request, schema) {
+    // Make gRPC call
+    let url = "http://" + client.host + ":" + client.port + "/" + service + "/" + method;
+    
+    // Encode request
+    let body = protobuf_encode(request, schema.request);
+    
+    // Make HTTP/2 request
+    let response = http_post(url, {
+        body: body,
+        headers: {
+            "content-type": "application/grpc+proto",
+            "te": "trailers"
+        }
+    });
+    
+    // Decode response
+    return protobuf_decode(response.body, schema.response);
+}
+
+fn grpc_streamCall(client, service, method, requests, schema) {
+    // Streaming gRPC call
+    let responses = [];
+    
+    arr_forEach(requests, fn(request) {
+        let response = grpc_call(client, service, method, request, schema);
+        arr_push(responses, response);
+    });
+    
+    return responses;
+}
+
+// ===== GRPC SERVER =====
+
+fn grpc_server(port) {
+    // Create gRPC server
+    return {
+        port: port,
+        services: {}
+    };
+}
+
+fn grpc_registerService(server, serviceName, methods) {
+    // Register service
+    server.services[serviceName] = methods;
+}
+
+fn grpc_serve(server) {
+    // Start gRPC server
+    let httpServer = http_createServer(server.port);
+    
+    httpServer.route("/*", fn(req) {
+        let parts = str_split(req.path, "/");
+        let serviceName = parts[1];
+        let methodName = parts[2];
+        
+        if (obj_has(server.services, serviceName)) {
+            let service = server.services[serviceName];
+            
+            if (obj_has(service, methodName)) {
+                let method = service[methodName];
+                
+                // Decode request
+                let request = protobuf_decode(req.body, method.schema.request);
+                
+                // Call method
+                let response = method.handler(request);
+                
+                // Encode response
+                let body = protobuf_encode(response, method.schema.response);
+                
+                return {
+                    status: 200,
+                    headers: {"content-type": "application/grpc+proto"},
+                    body: body
+                };
+            }
+        }
+        
+        return {status: 404, body: "Not found"};
+    });
+    
+    httpServer.start();
+}
+
+// ===== MESSAGE PACK =====
+
+fn msgpack_encode(value) {
+    // Encode to MessagePack
+    let type = typeof(value);
+    
+    if (type == "null") {
+        return [0xc0];
+    } else if (type == "boolean") {
+        return value ? [0xc3] : [0xc2];
+    } else if (type == "number") {
+        if (value >= 0 && value <= 127) {
+            return [value];
+        } else if (value >= -32 && value < 0) {
+            return [0xe0 | (value & 0x1f)];
+        }
+        // TODO: Encode larger numbers
+    } else if (type == "string") {
+        let bytes = str_toBytes(value);
+        let len = arr_length(bytes);
+        
+        if (len <= 31) {
+            return arr_concat([0xa0 | len], bytes);
+        }
+        // TODO: Encode longer strings
+    } else if (type == "array") {
+        let len = arr_length(value);
+        let result = [];
+        
+        if (len <= 15) {
+            arr_push(result, 0x90 | len);
+        }
+        
+        arr_forEach(value, fn(item) {
+            result = arr_concat(result, msgpack_encode(item));
+        });
+        
+        return result;
+    }
+    
+    return [];
+}
+
+fn msgpack_decode(bytes) {
+    // Decode from MessagePack
+    if (arr_length(bytes) == 0) {
+        return null;
+    }
+    
+    let first = bytes[0];
+    
+    if (first == 0xc0) {
+        return null;
+    } else if (first == 0xc2) {
+        return false;
+    } else if (first == 0xc3) {
+        return true;
+    } else if (first <= 0x7f) {
+        return first;
+    } else if (first >= 0xe0) {
+        return first - 256;
+    } else if ((first & 0xe0) == 0xa0) {
+        let len = first & 0x1f;
+        return str_fromBytes(arr_slice(bytes, 1, 1 + len));
+    } else if ((first & 0xf0) == 0x90) {
+        let len = first & 0x0f;
+        let result = [];
+        let offset = 1;
+        
+        let i = 0;
+        while (i < len) {
+            let item = msgpack_decode(arr_slice(bytes, offset, arr_length(bytes)));
+            arr_push(result, item);
+            // TODO: Track offset properly
+            i = i + 1;
+        }
+        
+        return result;
+    }
+    
+    return null;
+}

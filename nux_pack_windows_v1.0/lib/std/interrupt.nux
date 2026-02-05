@@ -1,0 +1,128 @@
+# Nux Interrupt Library
+# Interrupt handling and IDT management
+
+# IDT (Interrupt Descriptor Table) operations
+func idt_load(idt_ptr) {
+    asm {
+        "LIDT [" idt_ptr "]"
+    }
+}
+
+func idt_store(idt_ptr) {
+    asm {
+        "SIDT [" idt_ptr "]"
+    }
+}
+
+# Set interrupt handler
+func set_interrupt_handler(vector, handler_addr, flags) {
+    asm {
+        vector
+        handler_addr
+        flags
+        OP_SET_IRQ_HANDLER
+    }
+}
+
+# Enable/disable specific interrupt
+func enable_irq(irq) {
+    asm {
+        irq
+        OP_ENABLE_IRQ
+    }
+}
+
+func disable_irq(irq) {
+    asm {
+        irq
+        OP_DISABLE_IRQ
+    }
+}
+
+# PIC (Programmable Interrupt Controller) operations
+func pic_send_eoi(irq) {
+    if (irq >= 8) {
+        outb(0xA0, 0x20);
+    }
+    outb(0x20, 0x20);
+}
+
+func pic_remap(offset1, offset2) {
+    # Save masks
+    var mask1 = inb(0x21);
+    var mask2 = inb(0xA1);
+    
+    # Initialize PIC
+    outb(0x20, 0x11);
+    outb(0xA0, 0x11);
+    
+    # Set offsets
+    outb(0x21, offset1);
+    outb(0xA1, offset2);
+    
+    # Configure cascade
+    outb(0x21, 4);
+    outb(0xA1, 2);
+    
+    # 8086 mode
+    outb(0x21, 1);
+    outb(0xA1, 1);
+    
+    # Restore masks
+    outb(0x21, mask1);
+    outb(0xA1, mask2);
+}
+
+func pic_disable() {
+    outb(0xA1, 0xFF);
+    outb(0x21, 0xFF);
+}
+
+# APIC (Advanced PIC) operations
+func apic_read(reg) {
+    var apic_base = 0xFEE00000;
+    return mem_read32(apic_base + reg);
+}
+
+func apic_write(reg, value) {
+    var apic_base = 0xFEE00000;
+    mem_write32(apic_base + reg, value);
+}
+
+func apic_send_ipi(dest, vector) {
+    apic_write(0x310, (dest << 24));
+    apic_write(0x300, vector);
+}
+
+func apic_eoi() {
+    apic_write(0xB0, 0);
+}
+
+# Exception handlers
+var EXC_DIV_ZERO = 0;
+var EXC_DEBUG = 1;
+var EXC_NMI = 2;
+var EXC_BREAKPOINT = 3;
+var EXC_OVERFLOW = 4;
+var EXC_BOUND = 5;
+var EXC_INVALID_OP = 6;
+var EXC_NO_FPU = 7;
+var EXC_DOUBLE_FAULT = 8;
+var EXC_INVALID_TSS = 10;
+var EXC_SEG_NOT_PRESENT = 11;
+var EXC_STACK_FAULT = 12;
+var EXC_GPF = 13;
+var EXC_PAGE_FAULT = 14;
+
+# Software interrupts
+func int3() {
+    asm {
+        "INT3"
+    }
+}
+
+func software_int(vector) {
+    asm {
+        "INT " vector
+    }
+}

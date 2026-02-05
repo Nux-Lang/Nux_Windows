@@ -1,0 +1,118 @@
+# Nux Python FFI Library
+# Bindings for Python-based compiler tools
+
+# Python C API integration
+func python_init() {
+    asm {
+        OP_FFI_PYTHON_INIT
+    }
+}
+
+# PLY (Python Lex-Yacc)
+func python_ply_parse(grammar_module, input) {
+    asm {
+        grammar_module
+        input
+        OP_FFI_PYTHON_PLY_PARSE
+    }
+}
+
+# Lark parser
+func python_lark_parse(grammar, input) {
+    asm {
+        grammar
+        input
+        OP_FFI_PYTHON_LARK_PARSE
+    }
+}
+
+# PyParsing
+func python_pyparsing_parse(grammar_obj, input) {
+    asm {
+        grammar_obj
+        input
+        OP_FFI_PYTHON_PYPARSING_PARSE
+    }
+}
+
+# llvmlite bindings
+class PythonLLVMLite {
+    var module;
+    var builder;
+    
+    func init(module_name) {
+        asm {
+            module_name
+            OP_FFI_PYTHON_LLVMLITE_INIT
+        }
+    }
+    
+    func create_function(name, signature) {
+        asm {
+            this.module
+            name
+            signature
+            OP_FFI_PYTHON_LLVMLITE_FUNCTION
+        }
+    }
+    
+    func compile_ir() {
+        asm {
+            this.module
+            OP_FFI_PYTHON_LLVMLITE_COMPILE
+        }
+    }
+}
+
+# Call Python function from Nux
+func call_python(module_name, func_name, args) {
+    asm {
+        module_name
+        func_name
+        args
+        OP_FFI_CALL_PYTHON
+    }
+}
+
+# Export Nux function to Python
+func export_to_python(func_name, func_ptr) {
+    asm {
+        func_name
+        func_ptr
+        OP_FFI_EXPORT_TO_PYTHON
+    }
+}
+
+# Import Python module
+func import_python_module(module_name) {
+    asm {
+        module_name
+        OP_FFI_IMPORT_PYTHON_MODULE
+    }
+}
+
+# Python object wrapper
+class PythonObject {
+    var py_obj;
+    
+    func init(obj_ptr) {
+        this.py_obj = obj_ptr;
+    }
+    
+    func call_method(method_name, args) {
+        asm {
+            this.py_obj
+            method_name
+            args
+            OP_FFI_PYTHON_CALL_METHOD
+        }
+    }
+    
+    func get_attr(attr_name) {
+        asm {
+            this.py_obj
+            attr_name
+            OP_FFI_PYTHON_GET_ATTR
+        }
+    }
+}

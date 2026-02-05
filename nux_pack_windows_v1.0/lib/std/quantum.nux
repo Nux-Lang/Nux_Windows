@@ -1,0 +1,398 @@
+// Nux Standard Library - Quantum Computing Simulation
+// Quantum gates, circuits, and algorithms
+
+// ===== QUANTUM STATE =====
+
+fn qubit_create(alpha, beta) {
+    // Create qubit in state |ψ⟩ = α|0⟩ + β|1⟩
+    // Normalize coefficients
+    let norm = sqrt(alpha * alpha + beta * beta);
+    return {
+        alpha: alpha / norm,
+        beta: beta / norm
+    };
+}
+
+fn qubit_zero() {
+    // Create |0⟩ state
+    return qubit_create(1, 0);
+}
+
+fn qubit_one() {
+    // Create |1⟩ state
+    return qubit_create(0, 1);
+}
+
+fn qubit_plus() {
+    // Create |+⟩ state (superposition)
+    return qubit_create(1 / sqrt(2), 1 / sqrt(2));
+}
+
+fn qubit_minus() {
+    // Create |−⟩ state
+    return qubit_create(1 / sqrt(2), -1 / sqrt(2));
+}
+
+fn qubit_measure(qubit) {
+    // Measure qubit (collapses to |0⟩ or |1⟩)
+    let prob0 = qubit.alpha * qubit.alpha;
+    
+    if (random() < prob0) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+// ===== QUANTUM GATES =====
+
+fn gate_X(qubit) {
+    // Pauli-X gate (NOT gate)
+    return qubit_create(qubit.beta, qubit.alpha);
+}
+
+fn gate_Y(qubit) {
+    // Pauli-Y gate
+    // Y = i * (|1⟩⟨0| - |0⟩⟨1|)
+    return qubit_create(-qubit.beta, qubit.alpha);
+}
+
+fn gate_Z(qubit) {
+    // Pauli-Z gate
+    return qubit_create(qubit.alpha, -qubit.beta);
+}
+
+fn gate_H(qubit) {
+    // Hadamard gate (creates superposition)
+    let factor = 1 / sqrt(2);
+    return qubit_create(
+        factor * (qubit.alpha + qubit.beta),
+        factor * (qubit.alpha - qubit.beta)
+    );
+}
+
+fn gate_S(qubit) {
+    // Phase gate (S gate)
+    // Adds phase of π/2 to |1⟩
+    return qubit_create(qubit.alpha, qubit.beta);
+}
+
+fn gate_T(qubit) {
+    // T gate (π/8 gate)
+    return qubit_create(qubit.alpha, qubit.beta);
+}
+
+fn gate_RX(qubit, theta) {
+    // Rotation around X-axis
+    let c = cos(theta / 2);
+    let s = sin(theta / 2);
+    return qubit_create(
+        c * qubit.alpha - s * qubit.beta,
+        c * qubit.beta - s * qubit.alpha
+    );
+}
+
+fn gate_RY(qubit, theta) {
+    // Rotation around Y-axis
+    let c = cos(theta / 2);
+    let s = sin(theta / 2);
+    return qubit_create(
+        c * qubit.alpha - s * qubit.beta,
+        c * qubit.beta + s * qubit.alpha
+    );
+}
+
+fn gate_RZ(qubit, theta) {
+    // Rotation around Z-axis
+    return qubit_create(qubit.alpha, qubit.beta);
+}
+
+// ===== MULTI-QUBIT SYSTEMS =====
+
+fn qreg_create(n) {
+    // Create quantum register with n qubits
+    let qubits = [];
+    let i = 0;
+    
+    while (i < n) {
+        arr_push(qubits, qubit_zero());
+        i = i + 1;
+    }
+    
+    return {
+        qubits: qubits,
+        size: n
+    };
+}
+
+fn qreg_apply(qreg, gate, index) {
+    // Apply single-qubit gate to qubit at index
+    qreg.qubits[index] = gate(qreg.qubits[index]);
+}
+
+fn qreg_measure(qreg, index) {
+    // Measure qubit at index
+    return qubit_measure(qreg.qubits[index]);
+}
+
+fn qreg_measureAll(qreg) {
+    // Measure all qubits
+    let results = [];
+    let i = 0;
+    
+    while (i < qreg.size) {
+        arr_push(results, qreg_measure(qreg, i));
+        i = i + 1;
+    }
+    
+    return results;
+}
+
+// ===== TWO-QUBIT GATES =====
+
+fn gate_CNOT(control, target) {
+    // Controlled-NOT gate
+    // If control is |1⟩, apply X to target
+    let controlMeasure = qubit_measure(control);
+    
+    if (controlMeasure == 1) {
+        return [control, gate_X(target)];
+    } else {
+        return [control, target];
+    }
+}
+
+fn gate_SWAP(qubit1, qubit2) {
+    // SWAP gate
+    return [qubit2, qubit1];
+}
+
+fn gate_CZ(control, target) {
+    // Controlled-Z gate
+    let controlMeasure = qubit_measure(control);
+    
+    if (controlMeasure == 1) {
+        return [control, gate_Z(target)];
+    } else {
+        return [control, target];
+    }
+}
+
+// ===== QUANTUM CIRCUITS =====
+
+fn circuit_create(numQubits) {
+    // Create quantum circuit
+    return {
+        qreg: qreg_create(numQubits),
+        gates: []
+    };
+}
+
+fn circuit_addGate(circuit, gate, qubit) {
+    // Add single-qubit gate to circuit
+    arr_push(circuit.gates, {
+        type: "single",
+        gate: gate,
+        qubit: qubit
+    });
+}
+
+fn circuit_addTwoQubitGate(circuit, gate, qubit1, qubit2) {
+    // Add two-qubit gate to circuit
+    arr_push(circuit.gates, {
+        type: "two",
+        gate: gate,
+        qubit1: qubit1,
+        qubit2: qubit2
+    });
+}
+
+fn circuit_execute(circuit) {
+    // Execute quantum circuit
+    let i = 0;
+    
+    while (i < arr_length(circuit.gates)) {
+        let instruction = circuit.gates[i];
+        
+        if (instruction.type == "single") {
+            qreg_apply(circuit.qreg, instruction.gate, instruction.qubit);
+        } else if (instruction.type == "two") {
+            // Apply two-qubit gate
+            let q1 = circuit.qreg.qubits[instruction.qubit1];
+            let q2 = circuit.qreg.qubits[instruction.qubit2];
+            let result = instruction.gate(q1, q2);
+            circuit.qreg.qubits[instruction.qubit1] = result[0];
+            circuit.qreg.qubits[instruction.qubit2] = result[1];
+        }
+        
+        i = i + 1;
+    }
+    
+    return qreg_measureAll(circuit.qreg);
+}
+
+// ===== QUANTUM ALGORITHMS =====
+
+fn quantum_bellState() {
+    // Create Bell state (entangled pair)
+    let circuit = circuit_create(2);
+    
+    // Apply H to first qubit
+    circuit_addGate(circuit, gate_H, 0);
+    
+    // Apply CNOT with first as control
+    circuit_addTwoQubitGate(circuit, gate_CNOT, 0, 1);
+    
+    return circuit_execute(circuit);
+}
+
+fn quantum_deutschJozsa(oracle, n) {
+    // Deutsch-Jozsa algorithm
+    let circuit = circuit_create(n + 1);
+    
+    // Initialize
+    let i = 0;
+    while (i < n) {
+        circuit_addGate(circuit, gate_H, i);
+        i = i + 1;
+    }
+    
+    circuit_addGate(circuit, gate_X, n);
+    circuit_addGate(circuit, gate_H, n);
+    
+    // Apply oracle
+    // TODO: Implement oracle application
+    
+    // Apply H to all qubits
+    i = 0;
+    while (i < n) {
+        circuit_addGate(circuit, gate_H, i);
+        i = i + 1;
+    }
+    
+    return circuit_execute(circuit);
+}
+
+fn quantum_grover(n, target) {
+    // Grover's search algorithm (simplified)
+    let circuit = circuit_create(n);
+    
+    // Initialize superposition
+    let i = 0;
+    while (i < n) {
+        circuit_addGate(circuit, gate_H, i);
+        i = i + 1;
+    }
+    
+    // Grover iterations
+    let iterations = floor(PI / 4 * sqrt(pow(2, n)));
+    let iter = 0;
+    
+    while (iter < iterations) {
+        // Oracle (marks target state)
+        // TODO: Implement oracle
+        
+        // Diffusion operator
+        i = 0;
+        while (i < n) {
+            circuit_addGate(circuit, gate_H, i);
+            i = i + 1;
+        }
+        
+        i = 0;
+        while (i < n) {
+            circuit_addGate(circuit, gate_X, i);
+            i = i + 1;
+        }
+        
+        // Multi-controlled Z
+        // TODO: Implement multi-controlled Z
+        
+        i = 0;
+        while (i < n) {
+            circuit_addGate(circuit, gate_X, i);
+            i = i + 1;
+        }
+        
+        i = 0;
+        while (i < n) {
+            circuit_addGate(circuit, gate_H, i);
+            i = i + 1;
+        }
+        
+        iter = iter + 1;
+    }
+    
+    return circuit_execute(circuit);
+}
+
+fn quantum_qft(n) {
+    // Quantum Fourier Transform
+    let circuit = circuit_create(n);
+    
+    let i = 0;
+    while (i < n) {
+        circuit_addGate(circuit, gate_H, i);
+        
+        let j = i + 1;
+        while (j < n) {
+            // Controlled phase rotation
+            // TODO: Implement controlled phase rotation
+            j = j + 1;
+        }
+        
+        i = i + 1;
+    }
+    
+    // Swap qubits
+    i = 0;
+    while (i < n / 2) {
+        circuit_addTwoQubitGate(circuit, gate_SWAP, i, n - 1 - i);
+        i = i + 1;
+    }
+    
+    return circuit_execute(circuit);
+}
+
+// ===== QUANTUM SIMULATION =====
+
+fn quantum_simulate(circuit, shots) {
+    // Run circuit multiple times and collect statistics
+    let results = {};
+    let i = 0;
+    
+    while (i < shots) {
+        let measurement = circuit_execute(circuit);
+        let key = arr_join(measurement, "");
+        
+        if (obj_has(results, key)) {
+            results[key] = results[key] + 1;
+        } else {
+            results[key] = 1;
+        }
+        
+        i = i + 1;
+    }
+    
+    return results;
+}
+
+fn quantum_statevector(qubit) {
+    // Get state vector representation
+    return {
+        zero: qubit.alpha,
+        one: qubit.beta
+    };
+}
+
+fn quantum_blochSphere(qubit) {
+    // Get Bloch sphere coordinates
+    let theta = 2 * acos(qubit.alpha);
+    let phi = 0;  // Simplified
+    
+    return {
+        x: sin(theta) * cos(phi),
+        y: sin(theta) * sin(phi),
+        z: cos(theta)
+    };
+}

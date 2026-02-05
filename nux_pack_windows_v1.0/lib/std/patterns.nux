@@ -1,0 +1,316 @@
+// Nux Standard Library - Advanced Pattern Matching
+// Powerful pattern matching and destructuring
+
+// ===== PATTERN MATCHING =====
+
+fn match(value, patterns) {
+    // Pattern matching
+    let i = 0;
+    
+    while (i < arr_length(patterns)) {
+        let pattern = patterns[i];
+        let matched = pattern_match(value, pattern.pattern);
+        
+        if (matched.success) {
+            return pattern.handler(matched.bindings);
+        }
+        
+        i = i + 1;
+    }
+    
+    // No match found
+    return null;
+}
+
+fn pattern_match(value, pattern) {
+    // Match value against pattern
+    if (pattern.type == "literal") {
+        return {
+            success: value == pattern.value,
+            bindings: {}
+        };
+    }
+    
+    if (pattern.type == "variable") {
+        let bindings = {};
+        bindings[pattern.name] = value;
+        return {
+            success: true,
+            bindings: bindings
+        };
+    }
+    
+    if (pattern.type == "wildcard") {
+        return {
+            success: true,
+            bindings: {}
+        };
+    }
+    
+    if (pattern.type == "array") {
+        if (!Array.isArray(value)) {
+            return {success: false, bindings: {}};
+        }
+        
+        return pattern_matchArray(value, pattern);
+    }
+    
+    if (pattern.type == "object") {
+        return pattern_matchObject(value, pattern);
+    }
+    
+    if (pattern.type == "guard") {
+        let innerMatch = pattern_match(value, pattern.pattern);
+        if (innerMatch.success && pattern.guard(value)) {
+            return innerMatch;
+        }
+        return {success: false, bindings: {}};
+    }
+    
+    return {success: false, bindings: {}};
+}
+
+fn pattern_matchArray(value, pattern) {
+    // Match array pattern
+    let bindings = {};
+    
+    if (pattern.exact && arr_length(value) != arr_length(pattern.elements)) {
+        return {success: false, bindings: {}};
+    }
+    
+    let i = 0;
+    while (i < arr_length(pattern.elements)) {
+        let elemPattern = pattern.elements[i];
+        
+        if (elemPattern.type == "rest") {
+            // Rest pattern captures remaining elements
+            bindings[elemPattern.name] = arr_slice(value, i, arr_length(value));
+            break;
+        }
+        
+        if (i >= arr_length(value)) {
+            return {success: false, bindings: {}};
+        }
+        
+        let elemMatch = pattern_match(value[i], elemPattern);
+        if (!elemMatch.success) {
+            return {success: false, bindings: {}};
+        }
+        
+        // Merge bindings
+        let keys = obj_keys(elemMatch.bindings);
+        arr_forEach(keys, fn(key) {
+            bindings[key] = elemMatch.bindings[key];
+        });
+        
+        i = i + 1;
+    }
+    
+    return {success: true, bindings: bindings};
+}
+
+fn pattern_matchObject(value, pattern) {
+    // Match object pattern
+    let bindings = {};
+    let keys = obj_keys(pattern.fields);
+    
+    let i = 0;
+    while (i < arr_length(keys)) {
+        let key = keys[i];
+        let fieldPattern = pattern.fields[key];
+        
+        if (!obj_has(value, key)) {
+            return {success: false, bindings: {}};
+        }
+        
+        let fieldMatch = pattern_match(value[key], fieldPattern);
+        if (!fieldMatch.success) {
+            return {success: false, bindings: {}};
+        }
+        
+        // Merge bindings
+        let bindKeys = obj_keys(fieldMatch.bindings);
+        arr_forEach(bindKeys, fn(bkey) {
+            bindings[bkey] = fieldMatch.bindings[bkey];
+        });
+        
+        i = i + 1;
+    }
+    
+    return {success: true, bindings: bindings};
+}
+
+// ===== PATTERN CONSTRUCTORS =====
+
+fn pat_literal(value) {
+    // Literal pattern
+    return {type: "literal", value: value};
+}
+
+fn pat_var(name) {
+    // Variable pattern (binds value)
+    return {type: "variable", name: name};
+}
+
+fn pat_wildcard() {
+    // Wildcard pattern (matches anything)
+    return {type: "wildcard"};
+}
+
+fn pat_array(...elements) {
+    // Array pattern
+    return {
+        type: "array",
+        elements: elements,
+        exact: true
+    };
+}
+
+fn pat_arrayRest(name) {
+    // Rest pattern for arrays
+    return {type: "rest", name: name};
+}
+
+fn pat_object(fields) {
+    // Object pattern
+    return {type: "object", fields: fields};
+}
+
+fn pat_guard(pattern, guard) {
+    // Guarded pattern
+    return {
+        type: "guard",
+        pattern: pattern,
+        guard: guard
+    };
+}
+
+fn pat_or(...patterns) {
+    // Or pattern (matches if any pattern matches)
+    return {type: "or", patterns: patterns};
+}
+
+fn pat_and(...patterns) {
+    // And pattern (matches if all patterns match)
+    return {type: "and", patterns: patterns};
+}
+
+// ===== DESTRUCTURING =====
+
+fn destructure_array(arr, pattern) {
+    // Destructure array
+    let match = pattern_match(arr, pattern);
+    return match.bindings;
+}
+
+fn destructure_object(obj, pattern) {
+    // Destructure object
+    let match = pattern_match(obj, pattern);
+    return match.bindings;
+}
+
+// ===== ALGEBRAIC DATA TYPES =====
+
+fn adt_define(name, variants) {
+    // Define algebraic data type
+    return {
+        name: name,
+        variants: variants
+    };
+}
+
+fn adt_variant(type, name, ...args) {
+    // Create ADT variant
+    return {
+        __type__: type,
+        __variant__: name,
+        __args__: args
+    };
+}
+
+fn adt_match(value, cases) {
+    // Match on ADT
+    let variant = value.__variant__;
+    
+    if (obj_has(cases, variant)) {
+        return cases[variant](...value.__args__);
+    }
+    
+    if (obj_has(cases, "_")) {
+        return cases["_"](value);
+    }
+    
+    return null;
+}
+
+// Example: Option type
+fn Option_Some(value) {
+    return adt_variant("Option", "Some", value);
+}
+
+fn Option_None() {
+    return adt_variant("Option", "None");
+}
+
+fn option_map(opt, fn) {
+    return adt_match(opt, {
+        Some: fn(value) { return Option_Some(fn(value)); },
+        None: fn() { return Option_None(); }
+    });
+}
+
+// Example: Result type
+fn Result_Ok(value) {
+    return adt_variant("Result", "Ok", value);
+}
+
+fn Result_Err(error) {
+    return adt_variant("Result", "Err", error);
+}
+
+fn result_map(result, fn) {
+    return adt_match(result, {
+        Ok: fn(value) { return Result_Ok(fn(value)); },
+        Err: fn(err) { return Result_Err(err); }
+    });
+}
+
+// ===== ACTIVE PATTERNS =====
+
+fn activePattern_define(name, matcher) {
+    // Define active pattern
+    return {
+        name: name,
+        matcher: matcher
+    };
+}
+
+fn activePattern_match(value, pattern) {
+    // Match using active pattern
+    return pattern.matcher(value);
+}
+
+// Example: Even/Odd active pattern
+fn pattern_EvenOdd() {
+    return activePattern_define("EvenOdd", fn(n) {
+        if (n % 2 == 0) {
+            return {matched: true, value: "Even"};
+        } else {
+            return {matched: true, value: "Odd"};
+        }
+    });
+}
+
+// ===== EXHAUSTIVENESS CHECKING =====
+
+fn check_exhaustive(patterns, type) {
+    // Check if patterns are exhaustive
+    // TODO: Implement exhaustiveness checking
+    return true;
+}
+
+fn check_reachable(patterns) {
+    // Check if all patterns are reachable
+    // TODO: Detect unreachable patterns
+    return true;
+}

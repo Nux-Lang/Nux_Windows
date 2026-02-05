@@ -1,0 +1,194 @@
+# Nux Tensor Library
+# Multi-dimensional array operations for machine learning
+
+class Tensor {
+    var data;
+    var shape;
+    var ndim;
+    var size;
+    var strides;
+    
+    func init(dims, dim_count) {
+        this.ndim = dim_count;
+        this.shape = mem_alloc_aligned(dim_count * 8, 8);
+        this.strides = mem_alloc_aligned(dim_count * 8, 8);
+        
+        # Copy shape
+        this.size = 1;
+        var i = 0;
+        for (i = 0; i < dim_count; i = i + 1) {
+            var dim = mem_read64(dims + i * 8);
+            mem_write64(this.shape + i * 8, dim);
+            this.size = this.size * dim;
+        }
+        
+        # Calculate strides
+        var stride = 1;
+        for (i = dim_count - 1; i >= 0; i = i - 1) {
+            mem_write64(this.strides + i * 8, stride);
+            stride = stride * mem_read64(this.shape + i * 8);
+        }
+        
+        # Allocate data (aligned for SIMD)
+        this.data = mem_alloc_aligned(this.size * 8, 64);
+    }
+    
+    func get(indices) {
+        var offset = 0;
+        var i = 0;
+        for (i = 0; i < this.ndim; i = i + 1) {
+            var idx = mem_read64(indices + i * 8);
+            var stride = mem_read64(this.strides + i * 8);
+            offset = offset + idx * stride;
+        }
+        return mem_read64(this.data + offset * 8);
+    }
+    
+    func set(indices, value) {
+        var offset = 0;
+        var i = 0;
+        for (i = 0; i < this.ndim; i = i + 1) {
+            var idx = mem_read64(indices + i * 8);
+            var stride = mem_read64(this.strides + i * 8);
+            offset = offset + idx * stride;
+        }
+        mem_write64(this.data + offset * 8, value);
+    }
+    
+    func add(other) {
+        var result = new Tensor();
+        result.init(this.shape, this.ndim);
+        
+        var i = 0;
+        for (i = 0; i < this.size; i = i + 1) {
+            var a = mem_read64(this.data + i * 8);
+            var b = mem_read64(other.data + i * 8);
+            mem_write64(result.data + i * 8, a + b);
+        }
+        
+        return result;
+    }
+    
+    func mul(other) {
+        var result = new Tensor();
+        result.init(this.shape, this.ndim);
+        
+        var i = 0;
+        for (i = 0; i < this.size; i = i + 1) {
+            var a = mem_read64(this.data + i * 8);
+            var b = mem_read64(other.data + i * 8);
+            mem_write64(result.data + i * 8, a * b);
+        }
+        
+        return result;
+    }
+    
+    func matmul(other) {
+        # Matrix multiplication (2D only for simplicity)
+        var m = mem_read64(this.shape);
+        var k = mem_read64(this.shape + 8);
+        var n = mem_read64(other.shape + 8);
+        
+        var result_shape = mem_alloc_aligned(16, 8);
+        mem_write64(result_shape, m);
+        mem_write64(result_shape + 8, n);
+        
+        var result = new Tensor();
+        result.init(result_shape, 2);
+        
+        var i = 0;
+        var j = 0;
+        var k_idx = 0;
+        
+        for (i = 0; i < m; i = i + 1) {
+            for (j = 0; j < n; j = j + 1) {
+                var sum = 0;
+                for (k_idx = 0; k_idx < k; k_idx = k_idx + 1) {
+                    var a = mem_read64(this.data + (i * k + k_idx) * 8);
+                    var b = mem_read64(other.data + (k_idx * n + j) * 8);
+                    sum = sum + a * b;
+                }
+                mem_write64(result.data + (i * n + j) * 8, sum);
+            }
+        }
+        
+        return result;
+    }
+    
+    func transpose() {
+        # 2D transpose
+        var m = mem_read64(this.shape);
+        var n = mem_read64(this.shape + 8);
+        
+        var result_shape = mem_alloc_aligned(16, 8);
+        mem_write64(result_shape, n);
+        mem_write64(result_shape + 8, m);
+        
+        var result = new Tensor();
+        result.init(result_shape, 2);
+        
+        var i = 0;
+        var j = 0;
+        for (i = 0; i < m; i = i + 1) {
+            for (j = 0; j < n; j = j + 1) {
+                var val = mem_read64(this.data + (i * n + j) * 8);
+                mem_write64(result.data + (j * m + i) * 8, val);
+            }
+        }
+        
+        return result;
+    }
+    
+    func sum() {
+        var total = 0;
+        var i = 0;
+        for (i = 0; i < this.size; i = i + 1) {
+            total = total + mem_read64(this.data + i * 8);
+        }
+        return total;
+    }
+    
+    func mean() {
+        return this.sum() / this.size;
+    }
+    
+    func reshape(new_shape, new_ndim) {
+        var result = new Tensor();
+        result.init(new_shape, new_ndim);
+        
+        # Copy data
+        var i = 0;
+        for (i = 0; i < this.size; i = i + 1) {
+            var val = mem_read64(this.data + i * 8);
+            mem_write64(result.data + i * 8, val);
+        }
+        
+        return result;
+    }
+}
+
+# BLAS-like operations
+func dot_product(a, b, n) {
+    var sum = 0;
+    var i = 0;
+    for (i = 0; i < n; i = i + 1) {
+        sum = sum + mem_read64(a + i * 8) * mem_read64(b + i * 8);
+    }
+    return sum;
+}
+
+func vector_add(a, b, result, n) {
+    var i = 0;
+    for (i = 0; i < n; i = i + 1) {
+        var val = mem_read64(a + i * 8) + mem_read64(b + i * 8);
+        mem_write64(result + i * 8, val);
+    }
+}
+
+func vector_scale(a, scalar, result, n) {
+    var i = 0;
+    for (i = 0; i < n; i = i + 1) {
+        var val = mem_read64(a + i * 8) * scalar;
+        mem_write64(result + i * 8, val);
+    }
+}

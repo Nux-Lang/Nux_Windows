@@ -1,0 +1,168 @@
+// Nux Standard Library - File I/O Operations
+// File and directory manipulation functions
+
+// Note: These are high-level wrappers around system calls
+// Actual implementation requires VM support for file operations
+
+// ===== FILE READING =====
+
+fn file_read(path) {
+    // Read entire file as string
+    // TODO: Implement with VM file I/O support
+    return "";
+}
+
+fn file_readLines(path) {
+    // Read file as array of lines
+    let content = file_read(path);
+    return str_split(content, "\n");
+}
+
+fn file_readBytes(path) {
+    // Read file as byte array
+    // TODO: Implement with VM binary file support
+    return [];
+}
+
+// ===== FILE WRITING =====
+
+fn file_write(path, content) {
+    // Write string to file (overwrite)
+    // TODO: Implement with VM file I/O support
+    return true;
+}
+
+fn file_writeLines(path, lines) {
+    // Write array of lines to file
+    let content = arr_join(lines, "\n");
+    return file_write(path, content);
+}
+
+fn file_writeBytes(path, bytes) {
+    // Write byte array to file
+    // TODO: Implement with VM binary file support
+    return true;
+}
+
+fn file_append(path, content) {
+    // Append string to file
+    let existing = file_read(path);
+    return file_write(path, existing + content);
+}
+
+// ===== FILE OPERATIONS =====
+
+fn file_exists(path) {
+    // Check if file exists
+    // TODO: Implement with VM file system support
+    return false;
+}
+
+fn file_size(path) {
+    // Get file size in bytes
+    // TODO: Implement with VM file system support
+    return 0;
+}
+
+fn file_delete(path) {
+    // Delete file
+    // TODO: Implement with VM file system support
+    return true;
+}
+
+fn file_copy(src, dst) {
+    // Copy file
+    let content = file_readBytes(src);
+    return file_writeBytes(dst, content);
+}
+
+fn file_move(src, dst) {
+    // Move/rename file
+    if (file_copy(src, dst)) {
+        return file_delete(src);
+    }
+    return false;
+}
+
+// ===== DIRECTORY OPERATIONS =====
+
+fn dir_list(path) {
+    // List files in directory
+    // TODO: Implement with VM directory support
+    return [];
+}
+
+fn dir_create(path) {
+    // Create directory
+    // TODO: Implement with VM directory support
+    return true;
+}
+
+fn dir_delete(path) {
+    // Delete directory
+    // TODO: Implement with VM directory support
+    return true;
+}
+
+fn dir_exists(path) {
+    // Check if directory exists
+    // TODO: Implement with VM directory support
+    return false;
+}
+
+fn dir_isDirectory(path) {
+    // Check if path is a directory
+    // TODO: Implement with VM file system support
+    return false;
+}
+
+// ===== PATH OPERATIONS =====
+
+fn path_join(parts) {
+    // Join path components
+    return arr_join(parts, "/");
+}
+
+fn path_basename(path) {
+    // Get filename from path
+    let parts = str_split(path, "/");
+    let len = arr_length(parts);
+    if (len > 0) {
+        return parts[len - 1];
+    }
+    return path;
+}
+
+fn path_dirname(path) {
+    // Get directory from path
+    let parts = str_split(path, "/");
+    let len = arr_length(parts);
+    if (len > 1) {
+        return arr_join(arr_slice(parts, 0, len - 1), "/");
+    }
+    return ".";
+}
+
+fn path_extension(path) {
+    // Get file extension
+    let basename = path_basename(path);
+    let lastDot = str_lastIndexOf(basename, ".");
+    if (lastDot != -1) {
+        return str_substring(basename, lastDot + 1, str_length(basename));
+    }
+    return "";
+}
+
+// ===== UTILITY =====
+
+fn file_readJSON(path) {
+    // Read and parse JSON file
+    let content = file_read(path);
+    return json_parse(content);
+}
+
+fn file_writeJSON(path, obj) {
+    // Write object as JSON file
+    let content = json_stringify(obj);
+    return file_write(path, content);
+}

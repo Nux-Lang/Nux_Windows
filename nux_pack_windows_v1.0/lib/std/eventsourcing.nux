@@ -1,0 +1,282 @@
+// Nux Standard Library - Event Sourcing & CQRS
+// Event-driven architecture and command-query separation
+
+// ===== EVENT STORE =====
+
+fn eventstore_create() {
+    // Create event store
+    return {
+        events: [],
+        snapshots: {},
+        version: 0
+    };
+}
+
+fn eventstore_append(store, event) {
+    // Append event
+    event.version = store.version + 1;
+    event.timestamp = date_now();
+    arr_push(store.events, event);
+    store.version = store.version + 1;
+    return event.version;
+}
+
+fn eventstore_getEvents(store, aggregateId, fromVersion) {
+    // Get events for aggregate
+    return arr_filter(store.events, fn(event) {
+        return event.aggregateId == aggregateId && 
+               event.version >= (fromVersion || 0);
+    });
+}
+
+fn eventstore_snapshot(store, aggregateId, state) {
+    // Create snapshot
+    store.snapshots[aggregateId] = {
+        state: state,
+        version: store.version,
+        timestamp: date_now()
+    };
+}
+
+fn eventstore_getSnapshot(store, aggregateId) {
+    // Get latest snapshot
+    return store.snapshots[aggregateId] || null;
+}
+
+// ===== AGGREGATE =====
+
+fn aggregate_create(id, initialState) {
+    // Create aggregate
+    return {
+        id: id,
+        state: initialState,
+        version: 0,
+        uncommittedEvents: []
+    };
+}
+
+fn aggregate_apply(aggregate, event) {
+    // Apply event to aggregate
+    aggregate.state = aggregate.reducer(aggregate.state, event);
+    aggregate.version = aggregate.version + 1;
+}
+
+fn aggregate_handle(aggregate, command) {
+    // Handle command
+    let events = aggregate.commandHandler(aggregate.state, command);
+    
+    arr_forEach(events, fn(event) {
+        event.aggregateId = aggregate.id;
+        arr_push(aggregate.uncommittedEvents, event);
+        aggregate_apply(aggregate, event);
+    });
+    
+    return events;
+}
+
+fn aggregate_commit(aggregate, eventStore) {
+    // Commit uncommitted events
+    arr_forEach(aggregate.uncommittedEvents, fn(event) {
+        eventstore_append(eventStore, event);
+    });
+    
+    aggregate.uncommittedEvents = [];
+}
+
+fn aggregate_load(aggregateId, eventStore, reducer) {
+    // Load aggregate from events
+    let snapshot = eventstore_getSnapshot(eventStore, aggregateId);
+    let fromVersion = snapshot ? snapshot.version : 0;
+    let state = snapshot ? snapshot.state : {};
+    
+    let events = eventstore_getEvents(eventStore, aggregateId, fromVersion);
+    
+    arr_forEach(events, fn(event) {
+        state = reducer(state, event);
+    });
+    
+    return aggregate_create(aggregateId, state);
+}
+
+// ===== COMMAND BUS =====
+
+fn commandbus_create() {
+    // Create command bus
+    return {
+        handlers: {}
+    };
+}
+
+fn commandbus_register(bus, commandType, handler) {
+    // Register command handler
+    bus.handlers[commandType] = handler;
+}
+
+fn commandbus_dispatch(bus, command) {
+    // Dispatch command
+    let handler = bus.handlers[command.type];
+    
+    if (handler) {
+        return handler(command);
+    }
+    
+    print("No handler for command: " + command.type);
+    return null;
+}
+
+// ===== EVENT BUS =====
+
+fn eventbus_create() {
+    // Create event bus
+    return {
+        subscribers: {}
+    };
+}
+
+fn eventbus_subscribe(bus, eventType, handler) {
+    // Subscribe to event
+    if (!obj_has(bus.subscribers, eventType)) {
+        bus.subscribers[eventType] = [];
+    }
+    
+    arr_push(bus.subscribers[eventType], handler);
+}
+
+fn eventbus_publish(bus, event) {
+    // Publish event
+    let handlers = bus.subscribers[event.type] || [];
+    
+    arr_forEach(handlers, fn(handler) {
+        handler(event);
+    });
+}
+
+// ===== PROJECTION =====
+
+fn projection_create(name, initialState) {
+    // Create read model projection
+    return {
+        name: name,
+        state: initialState,
+        version: 0
+    };
+}
+
+fn projection_handle(projection, event) {
+    // Handle event
+    projection.state = projection.eventHandler(projection.state, event);
+    projection.version = event.version;
+}
+
+fn projection_rebuild(projection, eventStore) {
+    // Rebuild projection from events
+    projection.state = projection.initialState;
+    projection.version = 0;
+    
+    arr_forEach(eventStore.events, fn(event) {
+        projection_handle(projection, event);
+    });
+}
+
+// ===== SAGA =====
+
+fn saga_create(id, initialState) {
+    // Create saga (process manager)
+    return {
+        id: id,
+        state: initialState,
+        pendingCommands: []
+    };
+}
+
+fn saga_handle(saga, event) {
+    // Handle event in saga
+    let commands = saga.eventHandler(saga.state, event);
+    
+    arr_forEach(commands, fn(command) {
+        arr_push(saga.pendingCommands, command);
+    });
+    
+    saga.state = saga.reducer(saga.state, event);
+}
+
+fn saga_dispatchCommands(saga, commandBus) {
+    // Dispatch pending commands
+    arr_forEach(saga.pendingCommands, fn(command) {
+        commandbus_dispatch(commandBus, command);
+    });
+    
+    saga.pendingCommands = [];
+}
+
+// ===== QUERY =====
+
+fn query_create(type, params) {
+    // Create query
+    return {
+        type: type,
+        params: params
+    };
+}
+
+fn queryhandler_create() {
+    // Create query handler
+    return {
+        handlers: {}
+    };
+}
+
+fn queryhandler_register(qh, queryType, handler) {
+    // Register query handler
+    qh.handlers[queryType] = handler;
+}
+
+fn queryhandler_execute(qh, query) {
+    // Execute query
+    let handler = qh.handlers[query.type];
+    
+    if (handler) {
+        return handler(query.params);
+    }
+    
+    return null;
+}
+
+// ===== EVENT REPLAY =====
+
+fn replay_events(eventStore, fromVersion, toVersion, handler) {
+    // Replay events
+    let events = arr_filter(eventStore.events, fn(event) {
+        return event.version >= fromVersion && event.version <= toVersion;
+    });
+    
+    arr_forEach(events, handler);
+}
+
+// ===== TEMPORAL QUERIES =====
+
+fn query_asOf(eventStore, aggregateId, timestamp, reducer) {
+    // Query state as of timestamp
+    let events = arr_filter(eventStore.events, fn(event) {
+        return event.aggregateId == aggregateId && 
+               event.timestamp <= timestamp;
+    });
+    
+    let state = {};
+    arr_forEach(events, fn(event) {
+        state = reducer(state, event);
+    });
+    
+    return state;
+}
+
+fn query_between(eventStore, aggregateId, startTime, endTime, reducer) {
+    // Query state between timestamps
+    let events = arr_filter(eventStore.events, fn(event) {
+        return event.aggregateId == aggregateId && 
+               event.timestamp >= startTime &&
+               event.timestamp <= endTime;
+    });
+    
+    return events;
+}

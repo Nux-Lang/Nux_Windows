@@ -1,0 +1,372 @@
+// Nux Standard Library - Automata Theory
+// Finite automata, pushdown automata, Turing machines
+
+// ===== FINITE AUTOMATON =====
+
+fn fa_create(states, alphabet, transitions, initial, accepting) {
+    // Create finite automaton
+    return {
+        states: states,
+        alphabet: alphabet,
+        transitions: transitions,  // Map: (state, symbol) -> state
+        initial: initial,
+        accepting: accepting
+    };
+}
+
+fn fa_accepts(fa, input) {
+    // Check if FA accepts input
+    let currentState = fa.initial;
+    
+    let i = 0;
+    while (i < arr_length(input)) {
+        let symbol = input[i];
+        let key = currentState + "," + symbol;
+        
+        if (!obj_has(fa.transitions, key)) {
+            return false;  // No transition
+        }
+        
+        currentState = fa.transitions[key];
+        i = i + 1;
+    }
+    
+    return arr_includes(fa.accepting, currentState);
+}
+
+// ===== NONDETERMINISTIC FINITE AUTOMATON =====
+
+fn nfa_create(states, alphabet, transitions, initial, accepting) {
+    // Create NFA
+    return {
+        type: "nfa",
+        states: states,
+        alphabet: alphabet,
+        transitions: transitions,  // Map: (state, symbol) -> [states]
+        initial: initial,
+        accepting: accepting
+    };
+}
+
+fn nfa_accepts(nfa, input) {
+    // Check if NFA accepts input
+    let currentStates = set_create();
+    set_add(currentStates, nfa.initial);
+    
+    // Add epsilon closure
+    currentStates = nfa_epsilonClosure(nfa, currentStates);
+    
+    let i = 0;
+    while (i < arr_length(input)) {
+        let symbol = input[i];
+        let nextStates = set_create();
+        
+        set_forEach(currentStates, fn(state) {
+            let key = state + "," + symbol;
+            
+            if (obj_has(nfa.transitions, key)) {
+                let targets = nfa.transitions[key];
+                arr_forEach(targets, fn(target) {
+                    set_add(nextStates, target);
+                });
+            }
+        });
+        
+        currentStates = nfa_epsilonClosure(nfa, nextStates);
+        i = i + 1;
+    }
+    
+    // Check if any current state is accepting
+    return arr_some(nfa.accepting, fn(accept) {
+        return set_has(currentStates, accept);
+    });
+}
+
+fn nfa_epsilonClosure(nfa, states) {
+    // Compute epsilon closure
+    let closure = set_clone(states);
+    let stack = set_toArray(states);
+    
+    while (arr_length(stack) > 0) {
+        let state = arr_pop(stack);
+        let key = state + ",ε";
+        
+        if (obj_has(nfa.transitions, key)) {
+            let targets = nfa.transitions[key];
+            arr_forEach(targets, fn(target) {
+                if (!set_has(closure, target)) {
+                    set_add(closure, target);
+                    arr_push(stack, target);
+                }
+            });
+        }
+    }
+    
+    return closure;
+}
+
+// ===== NFA TO DFA CONVERSION =====
+
+fn nfa_toDFA(nfa) {
+    // Subset construction
+    let dfaStates = [];
+    let dfaTransitions = {};
+    let dfaAccepting = [];
+    
+    let initial = nfa_epsilonClosure(nfa, set_fromArray([nfa.initial]));
+    let unmarked = [initial];
+    let marked = [];
+    
+    while (arr_length(unmarked) > 0) {
+        let stateSet = arr_shift(unmarked);
+        arr_push(marked, stateSet);
+        
+        let stateName = set_toString(stateSet);
+        arr_push(dfaStates, stateName);
+        
+        // Check if accepting
+        if (arr_some(nfa.accepting, fn(accept) { return set_has(stateSet, accept); })) {
+            arr_push(dfaAccepting, stateName);
+        }
+        
+        // For each symbol
+        arr_forEach(nfa.alphabet, fn(symbol) {
+            let nextSet = set_create();
+            
+            set_forEach(stateSet, fn(state) {
+                let key = state + "," + symbol;
+                
+                if (obj_has(nfa.transitions, key)) {
+                    arr_forEach(nfa.transitions[key], fn(target) {
+                        set_add(nextSet, target);
+                    });
+                }
+            });
+            
+            nextSet = nfa_epsilonClosure(nfa, nextSet);
+            
+            if (set_size(nextSet) > 0) {
+                let nextName = set_toString(nextSet);
+                dfaTransitions[stateName + "," + symbol] = nextName;
+                
+                // Add to unmarked if new
+                if (!arr_some(marked, fn(s) { return set_equal(s, nextSet); }) &&
+                    !arr_some(unmarked, fn(s) { return set_equal(s, nextSet); })) {
+                    arr_push(unmarked, nextSet);
+                }
+            }
+        });
+    }
+    
+    return fa_create(
+        dfaStates,
+        nfa.alphabet,
+        dfaTransitions,
+        set_toString(initial),
+        dfaAccepting
+    );
+}
+
+// ===== REGULAR EXPRESSIONS TO NFA =====
+
+fn regex_toNFA(regex) {
+    // Thompson's construction
+    if (regex.type == "char") {
+        return regex_charNFA(regex.char);
+    }
+    
+    if (regex.type == "concat") {
+        return regex_concatNFA(
+            regex_toNFA(regex.left),
+            regex_toNFA(regex.right)
+        );
+    }
+    
+    if (regex.type == "union") {
+        return regex_unionNFA(
+            regex_toNFA(regex.left),
+            regex_toNFA(regex.right)
+        );
+    }
+    
+    if (regex.type == "star") {
+        return regex_starNFA(regex_toNFA(regex.expr));
+    }
+    
+    return null;
+}
+
+fn regex_charNFA(char) {
+    // NFA for single character
+    return nfa_create(
+        ["q0", "q1"],
+        [char],
+        {"q0," + char: ["q1"]},
+        "q0",
+        ["q1"]
+    );
+}
+
+// ===== PUSHDOWN AUTOMATON =====
+
+fn pda_create(states, inputAlphabet, stackAlphabet, transitions, initial, initialStack, accepting) {
+    // Create PDA
+    return {
+        states: states,
+        inputAlphabet: inputAlphabet,
+        stackAlphabet: stackAlphabet,
+        transitions: transitions,  // Map: (state, input, stack) -> [(state, stackOp)]
+        initial: initial,
+        initialStack: initialStack,
+        accepting: accepting
+    };
+}
+
+fn pda_accepts(pda, input) {
+    // Check if PDA accepts (by final state)
+    let configs = [{
+        state: pda.initial,
+        input: input,
+        stack: [pda.initialStack]
+    }];
+    
+    while (arr_length(configs) > 0) {
+        let config = arr_shift(configs);
+        
+        // Check if accepting
+        if (arr_length(config.input) == 0 && 
+            arr_includes(pda.accepting, config.state)) {
+            return true;
+        }
+        
+        // Try transitions
+        let symbol = arr_length(config.input) > 0 ? config.input[0] : "ε";
+        let stackTop = arr_length(config.stack) > 0 ? config.stack[arr_length(config.stack) - 1] : "ε";
+        
+        let key = config.state + "," + symbol + "," + stackTop;
+        
+        if (obj_has(pda.transitions, key)) {
+            arr_forEach(pda.transitions[key], fn(trans) {
+                let newStack = arr_clone(config.stack);
+                
+                if (arr_length(newStack) > 0) {
+                    arr_pop(newStack);  // Pop
+                }
+                
+                // Push new symbols
+                if (trans.push != "ε") {
+                    arr_push(newStack, trans.push);
+                }
+                
+                arr_push(configs, {
+                    state: trans.state,
+                    input: arr_slice(config.input, 1, arr_length(config.input)),
+                    stack: newStack
+                });
+            });
+        }
+    }
+    
+    return false;
+}
+
+// ===== TURING MACHINE =====
+
+fn tm_create(states, alphabet, tapeAlphabet, transitions, initial, blank, accepting) {
+    // Create Turing machine
+    return {
+        states: states,
+        alphabet: alphabet,
+        tapeAlphabet: tapeAlphabet,
+        transitions: transitions,  // Map: (state, symbol) -> (state, symbol, direction)
+        initial: initial,
+        blank: blank,
+        accepting: accepting
+    };
+}
+
+fn tm_run(tm, input) {
+    // Run Turing machine
+    let tape = arr_clone(input);
+    let head = 0;
+    let state = tm.initial;
+    let steps = 0;
+    let maxSteps = 10000;
+    
+    while (steps < maxSteps) {
+        // Check if accepting
+        if (arr_includes(tm.accepting, state)) {
+            return {accepted: true, tape: tape, steps: steps};
+        }
+        
+        // Get current symbol
+        let symbol = head < arr_length(tape) ? tape[head] : tm.blank;
+        
+        // Get transition
+        let key = state + "," + symbol;
+        
+        if (!obj_has(tm.transitions, key)) {
+            return {accepted: false, tape: tape, steps: steps};
+        }
+        
+        let trans = tm.transitions[key];
+        
+        // Update state
+        state = trans.state;
+        
+        // Write symbol
+        if (head >= arr_length(tape)) {
+            arr_push(tape, trans.write);
+        } else {
+            tape[head] = trans.write;
+        }
+        
+        // Move head
+        if (trans.direction == "R") {
+            head = head + 1;
+        } else if (trans.direction == "L") {
+            head = max(0, head - 1);
+        }
+        
+        steps = steps + 1;
+    }
+    
+    return {accepted: false, tape: tape, steps: steps, timeout: true};
+}
+
+// ===== AUTOMATON MINIMIZATION =====
+
+fn dfa_minimize(dfa) {
+    // Hopcroft's algorithm
+    // TODO: Implement DFA minimization
+    return dfa;
+}
+
+// ===== LANGUAGE OPERATIONS =====
+
+fn lang_union(fa1, fa2) {
+    // Union of languages
+    // TODO: Construct product automaton
+    return null;
+}
+
+fn lang_intersection(fa1, fa2) {
+    // Intersection of languages
+    // TODO: Construct product automaton
+    return null;
+}
+
+fn lang_complement(fa) {
+    // Complement of language
+    let complementAccepting = arr_filter(fa.states, fn(state) {
+        return !arr_includes(fa.accepting, state);
+    });
+    
+    return fa_create(
+        fa.states,
+        fa.alphabet,
+        fa.transitions,
+        fa.initial,
+        complementAccepting
+    );
+}

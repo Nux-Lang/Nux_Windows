@@ -1,0 +1,116 @@
+# Nux C/C++ FFI Library
+# Bindings for C/C++ compiler tools
+
+# Flex lexer integration
+func cpp_flex_lex(input, lex_file) {
+    asm {
+        input
+        lex_file
+        OP_FFI_CALL_FLEX
+    }
+}
+
+# Bison parser integration
+func cpp_bison_parse(input, grammar_file) {
+    asm {
+        input
+        grammar_file
+        OP_FFI_CALL_BISON
+    }
+}
+
+# ANTLR C++ target
+func cpp_antlr_parse(grammar, input) {
+    asm {
+        grammar
+        input
+        OP_FFI_CALL_ANTLR_CPP
+    }
+}
+
+# LLVM C++ API
+class CppLLVM {
+    var context;
+    var module;
+    var builder;
+    
+    func init(module_name) {
+        asm {
+            module_name
+            OP_FFI_CPP_LLVM_INIT
+        }
+    }
+    
+    func create_function(name, ret_type, param_types) {
+        asm {
+            this.module
+            name
+            ret_type
+            param_types
+            OP_FFI_CPP_LLVM_CREATE_FUNCTION
+        }
+    }
+    
+    func optimize(opt_level) {
+        asm {
+            this.module
+            opt_level
+            OP_FFI_CPP_LLVM_OPTIMIZE
+        }
+    }
+    
+    func emit_object_file(filename) {
+        asm {
+            this.module
+            filename
+            OP_FFI_CPP_LLVM_EMIT_OBJECT
+        }
+    }
+}
+
+# GCC JIT integration
+class CppGCCJIT {
+    var context;
+    
+    func init() {
+        asm {
+            OP_FFI_CPP_GCCJIT_INIT
+        }
+    }
+    
+    func compile(code) {
+        asm {
+            this.context
+            code
+            OP_FFI_CPP_GCCJIT_COMPILE
+        }
+    }
+}
+
+# C++ extern "C" exports
+func export_to_cpp(func_name, func_ptr, signature) {
+    asm {
+        func_name
+        func_ptr
+        signature
+        OP_FFI_EXPORT_TO_CPP
+    }
+}
+
+# Load C++ shared library
+func load_cpp_library(lib_path) {
+    asm {
+        lib_path
+        OP_FFI_LOAD_CPP_LIB
+    }
+}
+
+# Call C++ function
+func call_cpp_function(lib_handle, func_name, args) {
+    asm {
+        lib_handle
+        func_name
+        args
+        OP_FFI_CALL_CPP_FUNCTION
+    }
+}

@@ -1,0 +1,189 @@
+# Nux Filesystem Library
+# Filesystem drivers and VFS layer
+
+# VFS (Virtual File System) operations
+func vfs_mount(device, mountpoint, fs_type) {
+    asm {
+        device
+        mountpoint
+        fs_type
+        OP_VFS_MOUNT
+    }
+}
+
+func vfs_unmount(mountpoint) {
+    asm {
+        mountpoint
+        OP_VFS_UNMOUNT
+    }
+}
+
+# Inode operations
+class Inode {
+    var number;
+    var mode;
+    var uid;
+    var gid;
+    var size;
+    var atime;
+    var mtime;
+    var ctime;
+    var blocks;
+    
+    func init(ino) {
+        this.number = ino;
+    }
+    
+    func read_data(offset, length) {
+        asm {
+            this.number
+            offset
+            length
+            OP_INODE_READ
+        }
+    }
+    
+    func write_data(offset, data, length) {
+        asm {
+            this.number
+            offset
+            data
+            length
+            OP_INODE_WRITE
+        }
+    }
+}
+
+# Ext4 filesystem
+class Ext4FS {
+    var superblock_addr;
+    var block_size;
+    var inode_size;
+    var blocks_per_group;
+    var inodes_per_group;
+    
+    func init(device) {
+        # Read superblock at offset 1024
+        this.superblock_addr = mem_alloc_aligned(1024, 512);
+        # Read from device
+        asm {
+            device
+            1024
+            this.superblock_addr
+            1024
+            OP_DISK_READ
+        }
+        
+        # Parse superblock
+        this.block_size = 1024 << mem_read32(this.superblock_addr + 24);
+        this.inode_size = mem_read16(this.superblock_addr + 88);
+        this.blocks_per_group = mem_read32(this.superblock_addr + 32);
+        this.inodes_per_group = mem_read32(this.superblock_addr + 40);
+    }
+    
+    func read_inode(inode_num) {
+        var group = (inode_num - 1) / this.inodes_per_group;
+        var index = (inode_num - 1) % this.inodes_per_group;
+        
+        # Calculate inode table location
+        var inode_table_block = this.get_inode_table_block(group);
+        var inode_offset = index * this.inode_size;
+        
+        var inode_addr = mem_alloc_aligned(this.inode_size, 8);
+        # Read inode
+        var byte_offset = (inode_table_block * this.block_size) + inode_offset;
+        
+        var inode = new Inode();
+        inode.init(inode_num);
+        inode.mode = mem_read16(inode_addr + 0);
+        inode.size = mem_read32(inode_addr + 4);
+        
+        return inode;
+    }
+    
+    func get_inode_table_block(group) {
+        # Read block group descriptor
+        var desc_addr = mem_alloc_aligned(32, 8);
+        var desc_offset = (this.block_size * 2) + (group * 32);
+        
+        return mem_read32(desc_addr + 8);
+    }
+}
+
+# FAT32 filesystem
+class FAT32FS {
+    var boot_sector_addr;
+    var bytes_per_sector;
+    var sectors_per_cluster;
+    var reserved_sectors;
+    var fat_size;
+    var root_cluster;
+    var fat_start;
+    var data_start;
+    
+    func init(device) {
+        this.boot_sector_addr = mem_alloc_aligned(512, 512);
+        
+        # Read boot sector
+        asm {
+            device
+            0
+            this.boot_sector_addr
+            512
+            OP_DISK_READ
+        }
+        
+        this.bytes_per_sector = mem_read16(this.boot_sector_addr + 11);
+        this.sectors_per_cluster = mem_read8(this.boot_sector_addr + 13);
+        this.reserved_sectors = mem_read16(this.boot_sector_addr + 14);
+        this.fat_size = mem_read32(this.boot_sector_addr + 36);
+        this.root_cluster = mem_read32(this.boot_sector_addr + 44);
+        
+        this.fat_start = this.reserved_sectors;
+        this.data_start = this.reserved_sectors + (2 * this.fat_size);
+    }
+    
+    func read_cluster(cluster_num) {
+        var first_sector = this.data_start + ((cluster_num - 2) * this.sectors_per_cluster);
+        var cluster_size = this.bytes_per_sector * this.sectors_per_cluster;
+        
+        var buffer = mem_alloc_aligned(cluster_size, 512);
+        asm {
+            first_sector
+            buffer
+            cluster_size
+            OP_DISK_READ
+        }
+        
+        return buffer;
+    }
+    
+    func get_next_cluster(cluster_num) {
+        var fat_offset = cluster_num * 4;
+        var fat_sector = this.fat_start + (fat_offset / this.bytes_per_sector);
+        var entry_offset = fat_offset % this.bytes_per_sector;
+        
+        var sector_buffer = mem_alloc_aligned(this.bytes_per_sector, 512);
+        asm {
+            fat_sector
+            sector_buffer
+            this.bytes_per_sector
+            OP_DISK_READ
+        }
+        
+        return mem_read32(sector_buffer + entry_offset) & 0x0FFFFFFF;
+    }
+}
+
+# Directory entry
+class DirEntry {
+    var name;
+    var inode;
+    var type;
+    
+    func init(n, ino, t) {
+        this.name = n;
+        this.inode = ino;
+        this.type = t;
+    }
+}

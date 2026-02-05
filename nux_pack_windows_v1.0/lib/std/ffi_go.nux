@@ -1,0 +1,111 @@
+# Nux Go FFI Library
+# Bindings for Go-based compiler tools
+
+# CGO integration
+func go_init() {
+    asm {
+        OP_FFI_GO_INIT
+    }
+}
+
+# goyacc parser
+func go_yacc_parse(grammar_file, input) {
+    asm {
+        grammar_file
+        input
+        OP_FFI_GO_YACC_PARSE
+    }
+}
+
+# Participle parser
+func go_participle_parse(struct_def, input) {
+    asm {
+        struct_def
+        input
+        OP_FFI_GO_PARTICIPLE_PARSE
+    }
+}
+
+# Go-ANTLR
+func go_antlr_parse(grammar, input) {
+    asm {
+        grammar
+        input
+        OP_FFI_GO_ANTLR_PARSE
+    }
+}
+
+# go-llvm bindings
+class GoLLVM {
+    var module;
+    
+    func init(module_name) {
+        asm {
+            module_name
+            OP_FFI_GO_LLVM_INIT
+        }
+    }
+    
+    func add_function(name, func_type) {
+        asm {
+            this.module
+            name
+            func_type
+            OP_FFI_GO_LLVM_ADD_FUNCTION
+        }
+    }
+}
+
+# Call Go function
+func call_go_function(package_name, func_name, args) {
+    asm {
+        package_name
+        func_name
+        args
+        OP_FFI_CALL_GO_FUNCTION
+    }
+}
+
+# Export to Go
+func export_to_go(func_name, func_ptr) {
+    asm {
+        func_name
+        func_ptr
+        OP_FFI_EXPORT_TO_GO
+    }
+}
+
+# Load Go plugin
+func load_go_plugin(plugin_path) {
+    asm {
+        plugin_path
+        OP_FFI_LOAD_GO_PLUGIN
+    }
+}
+
+# Go channel wrapper
+class GoChannel {
+    var chan_ptr;
+    
+    func init(buffer_size) {
+        asm {
+            buffer_size
+            OP_FFI_GO_MAKE_CHANNEL
+        }
+    }
+    
+    func send(value) {
+        asm {
+            this.chan_ptr
+            value
+            OP_FFI_GO_CHANNEL_SEND
+        }
+    }
+    
+    func receive() {
+        asm {
+            this.chan_ptr
+            OP_FFI_GO_CHANNEL_RECEIVE
+        }
+    }
+}

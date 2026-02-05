@@ -1,0 +1,661 @@
+# Nux Enhanced Reinforcement Learning Library
+# Advanced RL algorithms
+
+import "ai.autograd";
+import "std.math";
+
+# ============================================================
+# REPLAY BUFFERS
+# ============================================================
+
+class ReplayBuffer {
+    var capacity;
+    var buffer;
+    var position;
+    
+    func init(cap) {
+        this.capacity = cap;
+        this.buffer = new List();
+        this.buffer.init();
+        this.position = 0;
+    }
+    
+    func push(state, action, reward, next_state, done) {
+        var transition = new Map();
+        transition.init();
+        transition.put("state", state);
+        transition.put("action", action);
+        transition.put("reward", reward);
+        transition.put("next_state", next_state);
+        transition.put("done", done);
+        
+        if (this.buffer.length() < this.capacity) {
+            this.buffer.append(transition);
+        } else {
+            this.buffer.set(this.position, transition);
+        }
+        this.position = (this.position + 1) % this.capacity;
+    }
+    
+    func sample(batch_size) {
+        var batch = new List();
+        batch.init();
+        var i = 0;
+        for (i = 0; i < batch_size; i = i + 1) {
+            var idx = random() % this.buffer.length();
+            batch.append(this.buffer.get(idx));
+        }
+        return batch;
+    }
+    
+    func size() { return this.buffer.length(); }
+}
+
+class PrioritizedReplayBuffer {
+    var capacity;
+    var buffer;
+    var priorities;
+    var alpha;
+    var beta;
+    var position;
+    
+    func init(cap, a, b) {
+        this.capacity = cap;
+        this.alpha = a;
+        this.beta = b;
+        this.buffer = new List();
+        this.buffer.init();
+        this.priorities = new List();
+        this.priorities.init();
+        this.position = 0;
+    }
+    
+    func push(state, action, reward, next_state, done) {
+        var max_priority = 1;
+        if (this.priorities.length() > 0) {
+            var i = 0;
+            for (i = 0; i < this.priorities.length(); i = i + 1) {
+                if (this.priorities.get(i) > max_priority) {
+                    max_priority = this.priorities.get(i);
+                }
+            }
+        }
+        
+        var transition = new Map();
+        transition.init();
+        transition.put("state", state);
+        transition.put("action", action);
+        transition.put("reward", reward);
+        transition.put("next_state", next_state);
+        transition.put("done", done);
+        
+        if (this.buffer.length() < this.capacity) {
+            this.buffer.append(transition);
+            this.priorities.append(max_priority);
+        } else {
+            this.buffer.set(this.position, transition);
+            this.priorities.set(this.position, max_priority);
+        }
+        this.position = (this.position + 1) % this.capacity;
+    }
+    
+    func sample(batch_size) {
+        var total = 0;
+        var i = 0;
+        for (i = 0; i < this.priorities.length(); i = i + 1) {
+            total = total + pow(this.priorities.get(i), this.alpha);
+        }
+        
+        var batch = new List();
+        batch.init();
+        var indices = new List();
+        indices.init();
+        var weights = new List();
+        weights.init();
+        
+        for (i = 0; i < batch_size; i = i + 1) {
+            var r = (random() % 1000) / 1000 * total;
+            var cumsum = 0;
+            var j = 0;
+            for (j = 0; j < this.priorities.length(); j = j + 1) {
+                cumsum = cumsum + pow(this.priorities.get(j), this.alpha);
+                if (cumsum >= r) {
+                    batch.append(this.buffer.get(j));
+                    indices.append(j);
+                    
+                    var prob = pow(this.priorities.get(j), this.alpha) / total;
+                    var weight = pow(this.buffer.length() * prob, -this.beta);
+                    weights.append(weight);
+                    break;
+                }
+            }
+        }
+        
+        var result = new Map();
+        result.init();
+        result.put("batch", batch);
+        result.put("indices", indices);
+        result.put("weights", weights);
+        return result;
+    }
+    
+    func update_priorities(indices, priorities) {
+        var i = 0;
+        for (i = 0; i < indices.length(); i = i + 1) {
+            this.priorities.set(indices.get(i), priorities.get(i));
+        }
+    }
+}
+
+# ============================================================
+# DQN VARIANTS
+# ============================================================
+
+class DQN {
+    var state_dim;
+    var action_dim;
+    var q_network;
+    var target_network;
+    var optimizer;
+    var gamma;
+    var epsilon;
+    var epsilon_decay;
+    var epsilon_min;
+    var buffer;
+    var batch_size;
+    var update_freq;
+    var steps;
+    
+    func init(s_dim, a_dim, lr) {
+        this.state_dim = s_dim;
+        this.action_dim = a_dim;
+        this.gamma = 0.99;
+        this.epsilon = 1.0;
+        this.epsilon_decay = 0.995;
+        this.epsilon_min = 0.01;
+        this.batch_size = 32;
+        this.update_freq = 100;
+        this.steps = 0;
+        
+        this.buffer = new ReplayBuffer();
+        this.buffer.init(10000);
+    }
+    
+    func select_action(state) {
+        if ((random() % 1000) / 1000 < this.epsilon) {
+            return random() % this.action_dim;
+        }
+        
+        # Forward pass through Q-network
+        var q_values = this.forward(state);
+        return this.argmax(q_values);
+    }
+    
+    func forward(state) {
+        return zeros(this.action_dim, 0);
+    }
+    
+    func argmax(values) {
+        var max_idx = 0;
+        var max_val = values.get(0);
+        var i = 1;
+        for (i = 1; i < values.size; i = i + 1) {
+            if (values.get(i) > max_val) {
+                max_val = values.get(i);
+                max_idx = i;
+            }
+        }
+        return max_idx;
+    }
+    
+    func train_step() {
+        if (this.buffer.size() < this.batch_size) { return; }
+        
+        var batch = this.buffer.sample(this.batch_size);
+        
+        # Compute TD targets
+        # Update Q-network
+        
+        this.steps = this.steps + 1;
+        if (this.steps % this.update_freq == 0) {
+            # Update target network
+        }
+        
+        this.epsilon = this.epsilon * this.epsilon_decay;
+        if (this.epsilon < this.epsilon_min) {
+            this.epsilon = this.epsilon_min;
+        }
+    }
+}
+
+class DoubleDQN {
+    var online_network;
+    var target_network;
+    var gamma;
+    
+    func init(s_dim, a_dim) {
+        this.gamma = 0.99;
+    }
+    
+    func compute_target(batch) {
+        # Use online network to select actions
+        # Use target network to evaluate Q-values
+        var targets = new List();
+        targets.init();
+        
+        var i = 0;
+        for (i = 0; i < batch.length(); i = i + 1) {
+            var transition = batch.get(i);
+            var reward = transition.get("reward");
+            var done = transition.get("done");
+            
+            if (done == 1) {
+                targets.append(reward);
+            } else {
+                # action = argmax(online_network(next_state))
+                # target = reward + gamma * target_network(next_state)[action]
+                targets.append(reward);
+            }
+        }
+        
+        return targets;
+    }
+}
+
+class DuelingDQN {
+    var state_dim;
+    var action_dim;
+    var feature_layer;
+    var value_stream;
+    var advantage_stream;
+    
+    func init(s_dim, a_dim) {
+        this.state_dim = s_dim;
+        this.action_dim = a_dim;
+    }
+    
+    func forward(state) {
+        var features = state;  # Feature extraction
+        
+        var value = 0;  # Value stream
+        var advantages = zeros(this.action_dim, 0);  # Advantage stream
+        
+        # Q = V + (A - mean(A))
+        var mean_adv = 0;
+        var i = 0;
+        for (i = 0; i < this.action_dim; i = i + 1) {
+            mean_adv = mean_adv + advantages.get(i);
+        }
+        mean_adv = mean_adv / this.action_dim;
+        
+        var q_values = new List();
+        q_values.init();
+        for (i = 0; i < this.action_dim; i = i + 1) {
+            q_values.append(value + advantages.get(i) - mean_adv);
+        }
+        
+        var v = new Variable();
+        v.init(q_values, 1);
+        return v;
+    }
+}
+
+# ============================================================
+# POLICY GRADIENT METHODS
+# ============================================================
+
+class REINFORCE {
+    var policy;
+    var optimizer;
+    var gamma;
+    var episode_rewards;
+    var episode_log_probs;
+    
+    func init(s_dim, a_dim, lr) {
+        this.gamma = 0.99;
+        this.episode_rewards = new List();
+        this.episode_rewards.init();
+        this.episode_log_probs = new List();
+        this.episode_log_probs.init();
+    }
+    
+    func select_action(state) {
+        var probs = this.forward(state);
+        var action = this.sample_action(probs);
+        return action;
+    }
+    
+    func forward(state) {
+        return softmax(state);
+    }
+    
+    func sample_action(probs) {
+        var r = (random() % 1000) / 1000;
+        var cumsum = 0;
+        var i = 0;
+        for (i = 0; i < probs.size; i = i + 1) {
+            cumsum = cumsum + probs.get(i);
+            if (cumsum >= r) { return i; }
+        }
+        return probs.size - 1;
+    }
+    
+    func store(reward, log_prob) {
+        this.episode_rewards.append(reward);
+        this.episode_log_probs.append(log_prob);
+    }
+    
+    func finish_episode() {
+        var returns = new List();
+        returns.init();
+        var G = 0;
+        
+        var i = this.episode_rewards.length() - 1;
+        while (i >= 0) {
+            G = this.episode_rewards.get(i) + this.gamma * G;
+            returns.append(G);
+            i = i - 1;
+        }
+        
+        # Reverse returns
+        # Normalize returns
+        # Compute policy gradient
+        # Update policy
+        
+        this.episode_rewards.clear();
+        this.episode_log_probs.clear();
+    }
+}
+
+class A2C {
+    var actor;
+    var critic;
+    var gamma;
+    var entropy_coef;
+    
+    func init(s_dim, a_dim) {
+        this.gamma = 0.99;
+        this.entropy_coef = 0.01;
+    }
+    
+    func select_action(state) {
+        var probs = this.actor_forward(state);
+        return this.sample_action(probs);
+    }
+    
+    func actor_forward(state) {
+        return softmax(state);
+    }
+    
+    func critic_forward(state) {
+        return 0;
+    }
+    
+    func sample_action(probs) {
+        var r = (random() % 1000) / 1000;
+        var cumsum = 0;
+        var i = 0;
+        for (i = 0; i < probs.size; i = i + 1) {
+            cumsum = cumsum + probs.get(i);
+            if (cumsum >= r) { return i; }
+        }
+        return probs.size - 1;
+    }
+    
+    func train_step(state, action, reward, next_state, done) {
+        var value = this.critic_forward(state);
+        var next_value = 0;
+        if (done == 0) {
+            next_value = this.critic_forward(next_state);
+        }
+        
+        var advantage = reward + this.gamma * next_value - value;
+        
+        # Actor loss: -log_prob * advantage
+        # Critic loss: (target - value)^2
+        # Entropy regularization
+    }
+}
+
+class PPO {
+    var actor;
+    var critic;
+    var gamma;
+    var gae_lambda;
+    var clip_ratio;
+    var epochs;
+    var batch_size;
+    
+    func init(s_dim, a_dim) {
+        this.gamma = 0.99;
+        this.gae_lambda = 0.95;
+        this.clip_ratio = 0.2;
+        this.epochs = 10;
+        this.batch_size = 64;
+    }
+    
+    func compute_gae(rewards, values, dones) {
+        var advantages = new List();
+        advantages.init();
+        var gae = 0;
+        
+        var i = rewards.length() - 1;
+        while (i >= 0) {
+            var delta = rewards.get(i);
+            if (i < rewards.length() - 1 && dones.get(i) == 0) {
+                delta = delta + this.gamma * values.get(i + 1) - values.get(i);
+            } else {
+                delta = delta - values.get(i);
+            }
+            
+            if (dones.get(i) == 1) {
+                gae = delta;
+            } else {
+                gae = delta + this.gamma * this.gae_lambda * gae;
+            }
+            
+            advantages.append(gae);
+            i = i - 1;
+        }
+        
+        # Reverse advantages
+        return advantages;
+    }
+    
+    func ppo_loss(old_log_probs, new_log_probs, advantages) {
+        var ratios = new List();
+        ratios.init();
+        var i = 0;
+        for (i = 0; i < old_log_probs.length(); i = i + 1) {
+            ratios.append(exp(new_log_probs.get(i) - old_log_probs.get(i)));
+        }
+        
+        var loss = 0;
+        for (i = 0; i < ratios.length(); i = i + 1) {
+            var ratio = ratios.get(i);
+            var adv = advantages.get(i);
+            var clipped = ratio;
+            if (ratio < 1 - this.clip_ratio) { clipped = 1 - this.clip_ratio; }
+            if (ratio > 1 + this.clip_ratio) { clipped = 1 + this.clip_ratio; }
+            
+            var l1 = ratio * adv;
+            var l2 = clipped * adv;
+            if (l1 < l2) { loss = loss - l1; }
+            else { loss = loss - l2; }
+        }
+        
+        return loss / ratios.length();
+    }
+}
+
+# ============================================================
+# ACTOR-CRITIC VARIANTS
+# ============================================================
+
+class SAC {
+    var actor;
+    var critic1;
+    var critic2;
+    var target_critic1;
+    var target_critic2;
+    var log_alpha;
+    var gamma;
+    var tau;
+    var target_entropy;
+    
+    func init(s_dim, a_dim) {
+        this.gamma = 0.99;
+        this.tau = 0.005;
+        this.target_entropy = -a_dim;
+        this.log_alpha = 0;
+    }
+    
+    func select_action(state, deterministic) {
+        var mean = 0;  # Actor forward
+        var log_std = 0;
+        
+        if (deterministic == 1) {
+            return mean;
+        }
+        
+        # Sample from Gaussian
+        var noise = (random() % 1000) / 500 - 1;
+        var action = mean + exp(log_std) * noise;
+        
+        return action;
+    }
+    
+    func soft_update(target, source) {
+        # target = tau * source + (1 - tau) * target
+    }
+}
+
+class TD3 {
+    var actor;
+    var critic1;
+    var critic2;
+    var target_actor;
+    var target_critic1;
+    var target_critic2;
+    var gamma;
+    var tau;
+    var policy_noise;
+    var noise_clip;
+    var policy_delay;
+    var update_counter;
+    
+    func init(s_dim, a_dim) {
+        this.gamma = 0.99;
+        this.tau = 0.005;
+        this.policy_noise = 0.2;
+        this.noise_clip = 0.5;
+        this.policy_delay = 2;
+        this.update_counter = 0;
+    }
+    
+    func select_action(state, noise_scale) {
+        var action = 0;  # Actor forward
+        
+        var noise = ((random() % 1000) / 500 - 1) * noise_scale;
+        action = action + noise;
+        
+        return action;
+    }
+    
+    func train_step(batch) {
+        # Compute target Q with clipped double-Q
+        # Update critics
+        
+        this.update_counter = this.update_counter + 1;
+        if (this.update_counter % this.policy_delay == 0) {
+            # Update actor
+            # Soft update targets
+        }
+    }
+}
+
+# ============================================================
+# MODEL-BASED RL
+# ============================================================
+
+class WorldModel {
+    var dynamics_model;
+    var reward_model;
+    
+    func init(s_dim, a_dim) {}
+    
+    func predict_next(state, action) {
+        return state;
+    }
+    
+    func predict_reward(state, action) {
+        return 0;
+    }
+    
+    func imagine_trajectory(state, policy, horizon) {
+        var trajectory = new List();
+        trajectory.init();
+        var current = state;
+        
+        var t = 0;
+        for (t = 0; t < horizon; t = t + 1) {
+            var action = policy.select_action(current);
+            var next_state = this.predict_next(current, action);
+            var reward = this.predict_reward(current, action);
+            
+            var step = new Map();
+            step.init();
+            step.put("state", current);
+            step.put("action", action);
+            step.put("reward", reward);
+            step.put("next_state", next_state);
+            trajectory.append(step);
+            
+            current = next_state;
+        }
+        
+        return trajectory;
+    }
+}
+
+class MBPO {
+    var world_model;
+    var sac;
+    var real_buffer;
+    var model_buffer;
+    var rollout_length;
+    
+    func init(s_dim, a_dim) {
+        this.world_model = new WorldModel();
+        this.world_model.init(s_dim, a_dim);
+        
+        this.sac = new SAC();
+        this.sac.init(s_dim, a_dim);
+        
+        this.real_buffer = new ReplayBuffer();
+        this.real_buffer.init(100000);
+        
+        this.model_buffer = new ReplayBuffer();
+        this.model_buffer.init(100000);
+        
+        this.rollout_length = 1;
+    }
+    
+    func train_step() {
+        # Train world model on real data
+        
+        # Generate synthetic data
+        var state = this.real_buffer.sample(1).get(0).get("state");
+        var trajectory = this.world_model.imagine_trajectory(state, this.sac, this.rollout_length);
+        
+        # Add to model buffer
+        var i = 0;
+        for (i = 0; i < trajectory.length(); i = i + 1) {
+            var step = trajectory.get(i);
+            this.model_buffer.push(step.get("state"), step.get("action"),
+                                   step.get("reward"), step.get("next_state"), 0);
+        }
+        
+        # Train SAC on mixed data
+    }
+}

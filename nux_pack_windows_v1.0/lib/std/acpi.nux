@@ -1,0 +1,163 @@
+# Nux ACPI Library
+# ACPI tables and power management
+
+# RSDP (Root System Description Pointer)
+class RSDP {
+    var signature;
+    var checksum;
+    var oem_id;
+    var revision;
+    var rsdt_addr;
+    var length;
+    var xsdt_addr;
+    
+    func find() {
+        # Search EBDA
+        var ebda = mem_read16(0x40E) << 4;
+        var addr = this.search_range(ebda, ebda + 1024);
+        
+        if (addr == 0) {
+            # Search BIOS area
+            addr = this.search_range(0xE0000, 0x100000);
+        }
+        
+        if (addr != 0) {
+            this.parse(addr);
+        }
+        
+        return addr;
+    }
+    
+    func search_range(start, end) {
+        var addr = start;
+        for (addr = start; addr < end; addr = addr + 16) {
+            var sig = mem_read64(addr);
+            if (sig == 0x2052545020445352) {
+                return addr;
+            }
+        }
+        return 0;
+    }
+    
+    func parse(addr) {
+        this.signature = mem_read64(addr);
+        this.checksum = mem_read8(addr + 8);
+        this.revision = mem_read8(addr + 15);
+        this.rsdt_addr = mem_read32(addr + 16);
+        
+        if (this.revision >= 2) {
+            this.length = mem_read32(addr + 20);
+            this.xsdt_addr = mem_read64(addr + 24);
+        }
+    }
+}
+
+# ACPI table header
+class ACPITableHeader {
+    var signature;
+    var length;
+    var revision;
+    var checksum;
+    var oem_id;
+    var oem_table_id;
+    var oem_revision;
+    var creator_id;
+    var creator_revision;
+    
+    func parse(addr) {
+        this.signature = mem_read32(addr);
+        this.length = mem_read32(addr + 4);
+        this.revision = mem_read8(addr + 8);
+        this.checksum = mem_read8(addr + 9);
+    }
+}
+
+# FADT (Fixed ACPI Description Table)
+class FADT {
+    var header;
+    var firmware_ctrl;
+    var dsdt_addr;
+    var pm1a_event_block;
+    var pm1a_control_block;
+    var pm_timer_block;
+    var smi_command_port;
+    var acpi_enable;
+    var acpi_disable;
+    
+    func parse(addr) {
+        this.header = new ACPITableHeader();
+        this.header.parse(addr);
+        
+        this.firmware_ctrl = mem_read32(addr + 36);
+        this.dsdt_addr = mem_read32(addr + 40);
+        this.pm1a_event_block = mem_read32(addr + 56);
+        this.pm1a_control_block = mem_read32(addr + 64);
+        this.pm_timer_block = mem_read32(addr + 76);
+        this.smi_command_port = mem_read32(addr + 48);
+        this.acpi_enable = mem_read8(addr + 52);
+        this.acpi_disable = mem_read8(addr + 53);
+    }
+    
+    func enable_acpi() {
+        if (this.smi_command_port != 0) {
+            outb(this.smi_command_port, this.acpi_enable);
+            
+            # Wait for ACPI to be enabled
+            for (;;) {
+                var pm1_ctrl = inw(this.pm1a_control_block);
+                if ((pm1_ctrl & 0x01) != 0) {
+                    break;
+                }
+                thread_yield();
+            }
+        }
+    }
+}
+
+# Power management
+func acpi_shutdown() {
+    # Find FADT
+    var rsdp = new RSDP();
+    var rsdp_addr = rsdp.find();
+    
+    if (rsdp_addr != 0) {
+        var fadt = new FADT();
+        # Parse FADT from RSDT
+        # ... (simplified)
+        
+        # Send shutdown signal
+        var pm1a_ctrl = inw(fadt.pm1a_control_block);
+        outw(fadt.pm1a_control_block, pm1a_ctrl | 0x2000);
+    }
+}
+
+func acpi_reboot() {
+    # Try keyboard controller reset
+    outb(0x64, 0xFE);
+    
+    # Try triple fault
+    asm {
+        "CLI"
+        "LIDT [0]"
+        "INT3"
+    }
+}
+
+# CPU frequency scaling
+func set_cpu_frequency(freq_mhz) {
+    # P-state control via MSR
+    var pstate = freq_mhz / 100;
+    wrmsr(0x199, pstate);
+}
+
+func get_cpu_frequency() {
+    var pstate = rdmsr(0x199);
+    return (pstate & 0xFF) * 100;
+}
+
+# Thermal management
+func get_cpu_temperature() {
+    var temp_msr = rdmsr(0x1A2);
+    var temp = (temp_msr >> 16) & 0x7F;
+    return temp;
+}

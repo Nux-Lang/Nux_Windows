@@ -1,0 +1,360 @@
+// Nux Standard Library - Game Theory
+// Nash equilibrium, game trees, and strategic games
+
+// ===== GAME DEFINITION =====
+
+fn game_create(players, strategies, payoffs) {
+    // Create strategic game
+    return {
+        players: players,
+        strategies: strategies,  // Map: player -> [strategies]
+        payoffs: payoffs  // Map: strategy profile -> [payoffs]
+    };
+}
+
+fn game_getPayoff(game, profile) {
+    // Get payoff for strategy profile
+    let key = arr_join(profile, ",");
+    return game.payoffs[key] || arr_fill(arr_length(game.players), 0);
+}
+
+// ===== NASH EQUILIBRIUM =====
+
+fn nash_findPure(game) {
+    // Find pure strategy Nash equilibria
+    let equilibria = [];
+    
+    // Generate all strategy profiles
+    let profiles = game_allProfiles(game);
+    
+    arr_forEach(profiles, fn(profile) {
+        if (nash_isPureEquilibrium(game, profile)) {
+            arr_push(equilibria, profile);
+        }
+    });
+    
+    return equilibria;
+}
+
+fn nash_isPureEquilibrium(game, profile) {
+    // Check if profile is Nash equilibrium
+    let payoffs = game_getPayoff(game, profile);
+    
+    let i = 0;
+    while (i < arr_length(game.players)) {
+        let player = game.players[i];
+        let currentStrategy = profile[i];
+        let currentPayoff = payoffs[i];
+        
+        // Check if player can improve by deviating
+        let strategies = game.strategies[player];
+        
+        let canImprove = arr_some(strategies, fn(altStrategy) {
+            if (altStrategy == currentStrategy) {
+                return false;
+            }
+            
+            let altProfile = arr_clone(profile);
+            altProfile[i] = altStrategy;
+            let altPayoffs = game_getPayoff(game, altProfile);
+            
+            return altPayoffs[i] > currentPayoff;
+        });
+        
+        if (canImprove) {
+            return false;
+        }
+        
+        i = i + 1;
+    }
+    
+    return true;
+}
+
+fn game_allProfiles(game) {
+    // Generate all strategy profiles
+    let profiles = [[]];
+    
+    arr_forEach(game.players, fn(player) {
+        let newProfiles = [];
+        let strategies = game.strategies[player];
+        
+        arr_forEach(profiles, fn(profile) {
+            arr_forEach(strategies, fn(strategy) {
+                let newProfile = arr_clone(profile);
+                arr_push(newProfile, strategy);
+                arr_push(newProfiles, newProfile);
+            });
+        });
+        
+        profiles = newProfiles;
+    });
+    
+    return profiles;
+}
+
+// ===== MIXED STRATEGY NASH =====
+
+fn nash_findMixed(game) {
+    // Find mixed strategy Nash equilibrium (2-player)
+    // TODO: Implement support enumeration or Lemke-Howson
+    return null;
+}
+
+// ===== DOMINANT STRATEGIES =====
+
+fn game_dominantStrategy(game, player) {
+    // Find dominant strategy for player
+    let playerIndex = arr_indexOf(game.players, player);
+    let strategies = game.strategies[player];
+    
+    let dominant = arr_find(strategies, fn(strategy) {
+        // Check if strategy dominates all others
+        return arr_every(strategies, fn(other) {
+            if (strategy == other) {
+                return true;
+            }
+            
+            return game_dominates(game, playerIndex, strategy, other);
+        });
+    });
+    
+    return dominant;
+}
+
+fn game_dominates(game, playerIndex, strategy1, strategy2) {
+    // Check if strategy1 dominates strategy2
+    let profiles = game_allProfiles(game);
+    
+    return arr_every(profiles, fn(profile) {
+        if (profile[playerIndex] != strategy2) {
+            return true;
+        }
+        
+        let profile1 = arr_clone(profile);
+        profile1[playerIndex] = strategy1;
+        
+        let payoff1 = game_getPayoff(game, profile1)[playerIndex];
+        let payoff2 = game_getPayoff(game, profile)[playerIndex];
+        
+        return payoff1 >= payoff2;
+    });
+}
+
+// ===== ITERATED ELIMINATION =====
+
+fn game_iteratedDominance(game) {
+    // Iterated elimination of dominated strategies
+    let currentGame = game;
+    let changed = true;
+    
+    while (changed) {
+        changed = false;
+        
+        arr_forEach(currentGame.players, fn(player) {
+            let playerIndex = arr_indexOf(currentGame.players, player);
+            let strategies = currentGame.strategies[player];
+            
+            let undominated = arr_filter(strategies, fn(strategy) {
+                // Check if strategy is dominated
+                return !arr_some(strategies, fn(other) {
+                    if (strategy == other) {
+                        return false;
+                    }
+                    
+                    return game_strictlyDominates(currentGame, playerIndex, other, strategy);
+                });
+            });
+            
+            if (arr_length(undominated) < arr_length(strategies)) {
+                currentGame.strategies[player] = undominated;
+                changed = true;
+            }
+        });
+    }
+    
+    return currentGame;
+}
+
+fn game_strictlyDominates(game, playerIndex, strategy1, strategy2) {
+    // Check if strategy1 strictly dominates strategy2
+    let profiles = game_allProfiles(game);
+    let betterCount = 0;
+    
+    let result = arr_every(profiles, fn(profile) {
+        if (profile[playerIndex] != strategy2) {
+            return true;
+        }
+        
+        let profile1 = arr_clone(profile);
+        profile1[playerIndex] = strategy1;
+        
+        let payoff1 = game_getPayoff(game, profile1)[playerIndex];
+        let payoff2 = game_getPayoff(game, profile)[playerIndex];
+        
+        if (payoff1 > payoff2) {
+            betterCount = betterCount + 1;
+        }
+        
+        return payoff1 >= payoff2;
+    });
+    
+    return result && betterCount > 0;
+}
+
+// ===== GAME TREE =====
+
+fn gametree_create(root) {
+    // Create game tree
+    return {
+        root: root
+    };
+}
+
+fn gametree_node(player, children, payoffs) {
+    // Create game tree node
+    return {
+        player: player,
+        children: children || [],
+        payoffs: payoffs || null
+    };
+}
+
+fn gametree_minimax(node, maximizing) {
+    // Minimax algorithm
+    if (node.payoffs != null) {
+        return node.payoffs[0];  // Assume 2-player zero-sum
+    }
+    
+    if (maximizing) {
+        let maxValue = -Infinity;
+        
+        arr_forEach(node.children, fn(child) {
+            let value = gametree_minimax(child, false);
+            maxValue = max(maxValue, value);
+        });
+        
+        return maxValue;
+    } else {
+        let minValue = Infinity;
+        
+        arr_forEach(node.children, fn(child) {
+            let value = gametree_minimax(child, true);
+            minValue = min(minValue, value);
+        });
+        
+        return minValue;
+    }
+}
+
+fn gametree_alphabeta(node, alpha, beta, maximizing) {
+    // Alpha-beta pruning
+    if (node.payoffs != null) {
+        return node.payoffs[0];
+    }
+    
+    if (maximizing) {
+        let maxValue = -Infinity;
+        
+        let i = 0;
+        while (i < arr_length(node.children)) {
+            let value = gametree_alphabeta(node.children[i], alpha, beta, false);
+            maxValue = max(maxValue, value);
+            alpha = max(alpha, value);
+            
+            if (beta <= alpha) {
+                break;  // Beta cutoff
+            }
+            
+            i = i + 1;
+        }
+        
+        return maxValue;
+    } else {
+        let minValue = Infinity;
+        
+        let i = 0;
+        while (i < arr_length(node.children)) {
+            let value = gametree_alphabeta(node.children[i], alpha, beta, true);
+            minValue = min(minValue, value);
+            beta = min(beta, value);
+            
+            if (beta <= alpha) {
+                break;  // Alpha cutoff
+            }
+            
+            i = i + 1;
+        }
+        
+        return minValue;
+    }
+}
+
+// ===== BACKWARD INDUCTION =====
+
+fn gametree_backwardInduction(node) {
+    // Backward induction for perfect information games
+    if (node.payoffs != null) {
+        return {
+            strategy: null,
+            payoffs: node.payoffs
+        };
+    }
+    
+    let bestChild = null;
+    let bestPayoff = -Infinity;
+    
+    arr_forEach(node.children, fn(child) {
+        let result = gametree_backwardInduction(child);
+        let payoff = result.payoffs[node.player];
+        
+        if (payoff > bestPayoff) {
+            bestPayoff = payoff;
+            bestChild = child;
+        }
+    });
+    
+    return {
+        strategy: bestChild,
+        payoffs: gametree_backwardInduction(bestChild).payoffs
+    };
+}
+
+// ===== CORRELATED EQUILIBRIUM =====
+
+fn correlated_equilibrium(game) {
+    // Find correlated equilibrium
+    // TODO: Implement linear programming approach
+    return null;
+}
+
+// ===== EVOLUTIONARY GAME THEORY =====
+
+fn evolutionary_replicator(game, population, generations) {
+    // Replicator dynamics
+    let currentPop = arr_clone(population);
+    
+    let gen = 0;
+    while (gen < generations) {
+        let fitness = arr_map(currentPop, fn(strategy, i) {
+            return evolutionary_fitness(game, strategy, currentPop);
+        });
+        
+        let avgFitness = arr_sum(fitness) / arr_length(fitness);
+        
+        // Update population
+        currentPop = arr_map(currentPop, fn(strategy, i) {
+            return strategy * fitness[i] / avgFitness;
+        });
+        
+        gen = gen + 1;
+    }
+    
+    return currentPop;
+}
+
+fn evolutionary_fitness(game, strategy, population) {
+    // Compute fitness
+    // TODO: Implement fitness calculation
+    return 1.0;
+}

@@ -1,0 +1,154 @@
+# Nux Quantum Computing Library
+# Quantum circuit simulation
+
+import "ai.tensor";
+
+# Quantum state (complex numbers)
+class QuantumState {
+    var num_qubits;
+    var state_size;
+    var real;
+    var imag;
+    
+    func init(n_qubits) {
+        this.num_qubits = n_qubits;
+        this.state_size = 1 << n_qubits;
+        
+        this.real = mem_alloc_aligned(this.state_size * 8, 64);
+        this.imag = mem_alloc_aligned(this.state_size * 8, 64);
+        
+        # Initialize to |0...0⟩
+        mem_write64(this.real, 1);
+        mem_write64(this.imag, 0);
+    }
+    
+    func normalize() {
+        var sum = 0;
+        var i = 0;
+        
+        for (i = 0; i < this.state_size; i = i + 1) {
+            var r = mem_read64(this.real + i * 8);
+            var im = mem_read64(this.imag + i * 8);
+            sum = sum + r * r + im * im;
+        }
+        
+        var norm = sqrt(sum);
+        for (i = 0; i < this.state_size; i = i + 1) {
+            var r = mem_read64(this.real + i * 8);
+            var im = mem_read64(this.imag + i * 8);
+            mem_write64(this.real + i * 8, r / norm);
+            mem_write64(this.imag + i * 8, im / norm);
+        }
+    }
+    
+    func measure(qubit) {
+        var prob_one = 0;
+        var i = 0;
+        
+        for (i = 0; i < this.state_size; i = i + 1) {
+            if ((i & (1 << qubit)) != 0) {
+                var r = mem_read64(this.real + i * 8);
+                var im = mem_read64(this.imag + i * 8);
+                prob_one = prob_one + r * r + im * im;
+            }
+        }
+        
+        var rand_val = (random() % 1000) / 1000;
+        return rand_val < prob_one;
+    }
+}
+
+# Quantum gates
+func hadamard(state, qubit) {
+    var sqrt2 = sqrt(2);
+    var i = 0;
+    
+    for (i = 0; i < state.state_size; i = i + 2 << qubit) {
+        var j = 0;
+        for (j = i; j < i + (1 << qubit); j = j + 1) {
+            var k = j + (1 << qubit);
+            
+            var r0 = mem_read64(state.real + j * 8);
+            var i0 = mem_read64(state.imag + j * 8);
+            var r1 = mem_read64(state.real + k * 8);
+            var i1 = mem_read64(state.imag + k * 8);
+            
+            mem_write64(state.real + j * 8, (r0 + r1) / sqrt2);
+            mem_write64(state.imag + j * 8, (i0 + i1) / sqrt2);
+            mem_write64(state.real + k * 8, (r0 - r1) / sqrt2);
+            mem_write64(state.imag + k * 8, (i0 - i1) / sqrt2);
+        }
+    }
+}
+
+func pauli_x(state, qubit) {
+    var i = 0;
+    for (i = 0; i < state.state_size; i = i + 2 << qubit) {
+        var j = 0;
+        for (j = i; j < i + (1 << qubit); j = j + 1) {
+            var k = j + (1 << qubit);
+            
+            var r_temp = mem_read64(state.real + j * 8);
+            var i_temp = mem_read64(state.imag + j * 8);
+            
+            mem_write64(state.real + j * 8, mem_read64(state.real + k * 8));
+            mem_write64(state.imag + j * 8, mem_read64(state.imag + k * 8));
+            mem_write64(state.real + k * 8, r_temp);
+            mem_write64(state.imag + k * 8, i_temp);
+        }
+    }
+}
+
+func pauli_z(state, qubit) {
+    var i = 0;
+    for (i = 0; i < state.state_size; i = i + 1) {
+        if ((i & (1 << qubit)) != 0) {
+            var r = mem_read64(state.real + i * 8);
+            var im = mem_read64(state.imag + i * 8);
+            mem_write64(state.real + i * 8, 0 - r);
+            mem_write64(state.imag + i * 8, 0 - im);
+        }
+    }
+}
+
+func cnot(state, control, target) {
+    var i = 0;
+    for (i = 0; i < state.state_size; i = i + 1) {
+        if ((i & (1 << control)) != 0) {
+            var j = i ^ (1 << target);
+            if (i < j) {
+                var r_temp = mem_read64(state.real + i * 8);
+                var i_temp = mem_read64(state.imag + i * 8);
+                
+                mem_write64(state.real + i * 8, mem_read64(state.real + j * 8));
+                mem_write64(state.imag + i * 8, mem_read64(state.imag + j * 8));
+                mem_write64(state.real + j * 8, r_temp);
+                mem_write64(state.imag + j * 8, i_temp);
+            }
+        }
+    }
+}
+
+# Quantum algorithms
+func grover_search(n_qubits, target) {
+    var state = new QuantumState();
+    state.init(n_qubits);
+    
+    # Apply Hadamard to all qubits
+    var i = 0;
+    for (i = 0; i < n_qubits; i = i + 1) {
+        hadamard(state, i);
+    }
+    
+    # Grover iterations
+    var iterations = sqrt(1 << n_qubits);
+    for (i = 0; i < iterations; i = i + 1) {
+        # Oracle
+        # ... (mark target state)
+        
+        # Diffusion operator
+        # ... (inversion about average)
+    }
+    
+    return state;
+}

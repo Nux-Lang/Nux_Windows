@@ -1,0 +1,422 @@
+// Nux Standard Library - Machine Learning
+// Neural networks, training, and inference
+
+// ===== TENSOR OPERATIONS =====
+
+fn tensor_create(shape, data) {
+    // Create tensor with shape and data
+    return {
+        shape: shape,
+        data: data,
+        ndim: arr_length(shape)
+    };
+}
+
+fn tensor_zeros(shape) {
+    // Create tensor filled with zeros
+    let size = arr_reduce(shape, fn(acc, dim) { return acc * dim; }, 1);
+    let data = arr_fill(size, 0);
+    return tensor_create(shape, data);
+}
+
+fn tensor_ones(shape) {
+    // Create tensor filled with ones
+    let size = arr_reduce(shape, fn(acc, dim) { return acc * dim; }, 1);
+    let data = arr_fill(size, 1);
+    return tensor_create(shape, data);
+}
+
+fn tensor_random(shape) {
+    // Create tensor with random values
+    let size = arr_reduce(shape, fn(acc, dim) { return acc * dim; }, 1);
+    let data = times(size, fn(i) { return random(); });
+    return tensor_create(shape, data);
+}
+
+fn tensor_add(t1, t2) {
+    // Element-wise addition
+    let result = [];
+    let i = 0;
+    
+    while (i < arr_length(t1.data)) {
+        result[i] = t1.data[i] + t2.data[i];
+        i = i + 1;
+    }
+    
+    return tensor_create(t1.shape, result);
+}
+
+fn tensor_multiply(t1, t2) {
+    // Element-wise multiplication
+    let result = [];
+    let i = 0;
+    
+    while (i < arr_length(t1.data)) {
+        result[i] = t1.data[i] * t2.data[i];
+        i = i + 1;
+    }
+    
+    return tensor_create(t1.shape, result);
+}
+
+fn tensor_matmul(t1, t2) {
+    // Matrix multiplication
+    // TODO: Implement proper matrix multiplication
+    return tensor_create(t1.shape, t1.data);
+}
+
+fn tensor_transpose(tensor) {
+    // Transpose 2D tensor
+    // TODO: Implement proper transpose
+    return tensor;
+}
+
+fn tensor_reshape(tensor, newShape) {
+    // Reshape tensor
+    return tensor_create(newShape, tensor.data);
+}
+
+// ===== ACTIVATION FUNCTIONS =====
+
+fn activation_relu(x) {
+    // ReLU activation
+    return max(0, x);
+}
+
+fn activation_sigmoid(x) {
+    // Sigmoid activation
+    return 1 / (1 + exp(-x));
+}
+
+fn activation_tanh(x) {
+    // Tanh activation
+    return (exp(x) - exp(-x)) / (exp(x) + exp(-x));
+}
+
+fn activation_softmax(arr) {
+    // Softmax activation
+    let expSum = arr_reduce(arr, fn(sum, x) { return sum + exp(x); }, 0);
+    return arr_map(arr, fn(x) { return exp(x) / expSum; });
+}
+
+// ===== LOSS FUNCTIONS =====
+
+fn loss_mse(predicted, actual) {
+    // Mean Squared Error
+    let diff = arr_map(zip(predicted, actual), fn(pair) {
+        let d = pair[0] - pair[1];
+        return d * d;
+    });
+    return arr_average(diff);
+}
+
+fn loss_crossEntropy(predicted, actual) {
+    // Cross-entropy loss
+    let losses = arr_map(zip(predicted, actual), fn(pair) {
+        return -pair[1] * log(pair[0]);
+    });
+    return arr_sum(losses);
+}
+
+// ===== NEURAL NETWORK LAYER =====
+
+fn layer_dense(inputSize, outputSize) {
+    // Create dense (fully connected) layer
+    return {
+        weights: tensor_random([inputSize, outputSize]),
+        bias: tensor_zeros([outputSize]),
+        activation: "relu"
+    };
+}
+
+fn layer_forward(layer, input) {
+    // Forward pass through layer
+    let output = tensor_matmul(input, layer.weights);
+    output = tensor_add(output, layer.bias);
+    
+    // Apply activation
+    if (layer.activation == "relu") {
+        output.data = arr_map(output.data, activation_relu);
+    } else if (layer.activation == "sigmoid") {
+        output.data = arr_map(output.data, activation_sigmoid);
+    }
+    
+    return output;
+}
+
+// ===== NEURAL NETWORK =====
+
+fn nn_create(layers) {
+    // Create neural network
+    return {
+        layers: layers,
+        learningRate: 0.01
+    };
+}
+
+fn nn_forward(network, input) {
+    // Forward pass through network
+    let output = input;
+    let i = 0;
+    
+    while (i < arr_length(network.layers)) {
+        output = layer_forward(network.layers[i], output);
+        i = i + 1;
+    }
+    
+    return output;
+}
+
+fn nn_train(network, trainData, trainLabels, epochs) {
+    // Train neural network
+    let epoch = 0;
+    
+    while (epoch < epochs) {
+        let totalLoss = 0;
+        let i = 0;
+        
+        while (i < arr_length(trainData)) {
+            let input = trainData[i];
+            let label = trainLabels[i];
+            
+            // Forward pass
+            let output = nn_forward(network, input);
+            
+            // Calculate loss
+            let loss = loss_mse(output.data, label);
+            totalLoss = totalLoss + loss;
+            
+            // Backward pass (simplified)
+            // TODO: Implement proper backpropagation
+            
+            i = i + 1;
+        }
+        
+        let avgLoss = totalLoss / arr_length(trainData);
+        print("Epoch " + epoch + ", Loss: " + avgLoss);
+        
+        epoch = epoch + 1;
+    }
+}
+
+fn nn_predict(network, input) {
+    // Make prediction
+    let output = nn_forward(network, input);
+    return output.data;
+}
+
+// ===== K-MEANS CLUSTERING =====
+
+fn kmeans_init(data, k) {
+    // Initialize k-means centroids
+    let centroids = [];
+    let i = 0;
+    
+    while (i < k) {
+        let randomIndex = randomInt(0, arr_length(data) - 1);
+        arr_push(centroids, data[randomIndex]);
+        i = i + 1;
+    }
+    
+    return centroids;
+}
+
+fn kmeans_distance(point1, point2) {
+    // Euclidean distance
+    let sum = 0;
+    let i = 0;
+    
+    while (i < arr_length(point1)) {
+        let diff = point1[i] - point2[i];
+        sum = sum + diff * diff;
+        i = i + 1;
+    }
+    
+    return sqrt(sum);
+}
+
+fn kmeans_fit(data, k, maxIterations) {
+    // Fit k-means clustering
+    let centroids = kmeans_init(data, k);
+    let iteration = 0;
+    
+    while (iteration < maxIterations) {
+        // Assign points to clusters
+        let clusters = times(k, fn(i) { return []; });
+        
+        let i = 0;
+        while (i < arr_length(data)) {
+            let point = data[i];
+            let minDist = 999999;
+            let minCluster = 0;
+            
+            let j = 0;
+            while (j < k) {
+                let dist = kmeans_distance(point, centroids[j]);
+                if (dist < minDist) {
+                    minDist = dist;
+                    minCluster = j;
+                }
+                j = j + 1;
+            }
+            
+            arr_push(clusters[minCluster], point);
+            i = i + 1;
+        }
+        
+        // Update centroids
+        let j = 0;
+        while (j < k) {
+            if (arr_length(clusters[j]) > 0) {
+                // Calculate mean of cluster
+                let dims = arr_length(clusters[j][0]);
+                let newCentroid = arr_fill(dims, 0);
+                
+                let i = 0;
+                while (i < arr_length(clusters[j])) {
+                    let point = clusters[j][i];
+                    let d = 0;
+                    while (d < dims) {
+                        newCentroid[d] = newCentroid[d] + point[d];
+                        d = d + 1;
+                    }
+                    i = i + 1;
+                }
+                
+                let d = 0;
+                while (d < dims) {
+                    newCentroid[d] = newCentroid[d] / arr_length(clusters[j]);
+                    d = d + 1;
+                }
+                
+                centroids[j] = newCentroid;
+            }
+            j = j + 1;
+        }
+        
+        iteration = iteration + 1;
+    }
+    
+    return centroids;
+}
+
+// ===== LINEAR REGRESSION =====
+
+fn linearRegression_fit(X, y) {
+    // Fit linear regression
+    // y = mx + b
+    let n = arr_length(X);
+    let sumX = arr_sum(X);
+    let sumY = arr_sum(y);
+    let sumXY = 0;
+    let sumX2 = 0;
+    
+    let i = 0;
+    while (i < n) {
+        sumXY = sumXY + X[i] * y[i];
+        sumX2 = sumX2 + X[i] * X[i];
+        i = i + 1;
+    }
+    
+    let m = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    let b = (sumY - m * sumX) / n;
+    
+    return {slope: m, intercept: b};
+}
+
+fn linearRegression_predict(model, x) {
+    // Predict using linear regression
+    return model.slope * x + model.intercept;
+}
+
+// ===== DECISION TREE =====
+
+fn decisionTree_create() {
+    // Create decision tree
+    return {
+        root: null,
+        maxDepth: 10
+    };
+}
+
+fn decisionTree_fit(tree, X, y) {
+    // Fit decision tree
+    // TODO: Implement decision tree training
+    tree.root = {
+        feature: 0,
+        threshold: 0,
+        left: null,
+        right: null,
+        value: null
+    };
+}
+
+fn decisionTree_predict(tree, x) {
+    // Predict using decision tree
+    // TODO: Implement decision tree prediction
+    return 0;
+}
+
+// ===== MODEL EVALUATION =====
+
+fn accuracy(predicted, actual) {
+    // Calculate accuracy
+    let correct = 0;
+    let i = 0;
+    
+    while (i < arr_length(predicted)) {
+        if (predicted[i] == actual[i]) {
+            correct = correct + 1;
+        }
+        i = i + 1;
+    }
+    
+    return correct / arr_length(predicted);
+}
+
+fn precision(predicted, actual, positiveClass) {
+    // Calculate precision
+    let truePositive = 0;
+    let falsePositive = 0;
+    let i = 0;
+    
+    while (i < arr_length(predicted)) {
+        if (predicted[i] == positiveClass) {
+            if (actual[i] == positiveClass) {
+                truePositive = truePositive + 1;
+            } else {
+                falsePositive = falsePositive + 1;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return truePositive / (truePositive + falsePositive);
+}
+
+fn recall(predicted, actual, positiveClass) {
+    // Calculate recall
+    let truePositive = 0;
+    let falseNegative = 0;
+    let i = 0;
+    
+    while (i < arr_length(predicted)) {
+        if (actual[i] == positiveClass) {
+            if (predicted[i] == positiveClass) {
+                truePositive = truePositive + 1;
+            } else {
+                falseNegative = falseNegative + 1;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return truePositive / (truePositive + falseNegative);
+}
+
+fn f1Score(predicted, actual, positiveClass) {
+    // Calculate F1 score
+    let p = precision(predicted, actual, positiveClass);
+    let r = recall(predicted, actual, positiveClass);
+    return 2 * (p * r) / (p + r);
+}

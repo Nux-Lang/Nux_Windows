@@ -1,0 +1,395 @@
+// Nux Standard Library - Probabilistic Programming
+// Bayesian inference, probabilistic models, and statistical sampling
+
+// ===== PROBABILITY DISTRIBUTION =====
+
+fn dist_uniform(min, max) {
+    // Uniform distribution
+    return {
+        type: "uniform",
+        min: min,
+        max: max,
+        sample: fn() {
+            return min + random() * (max - min);
+        },
+        pdf: fn(x) {
+            if (x >= min && x <= max) {
+                return 1.0 / (max - min);
+            }
+            return 0.0;
+        }
+    };
+}
+
+fn dist_normal(mean, stddev) {
+    // Normal (Gaussian) distribution
+    return {
+        type: "normal",
+        mean: mean,
+        stddev: stddev,
+        sample: fn() {
+            // Box-Muller transform
+            let u1 = random();
+            let u2 = random();
+            let z0 = sqrt(-2.0 * log(u1)) * cos(2.0 * PI * u2);
+            return mean + z0 * stddev;
+        },
+        pdf: fn(x) {
+            let variance = stddev * stddev;
+            let exponent = -((x - mean) * (x - mean)) / (2.0 * variance);
+            return (1.0 / sqrt(2.0 * PI * variance)) * exp(exponent);
+        }
+    };
+}
+
+fn dist_bernoulli(p) {
+    // Bernoulli distribution
+    return {
+        type: "bernoulli",
+        p: p,
+        sample: fn() {
+            return random() < p ? 1 : 0;
+        },
+        pmf: fn(x) {
+            if (x == 1) {
+                return p;
+            } else if (x == 0) {
+                return 1.0 - p;
+            }
+            return 0.0;
+        }
+    };
+}
+
+fn dist_binomial(n, p) {
+    // Binomial distribution
+    return {
+        type: "binomial",
+        n: n,
+        p: p,
+        sample: fn() {
+            let count = 0;
+            let i = 0;
+            while (i < n) {
+                if (random() < p) {
+                    count = count + 1;
+                }
+                i = i + 1;
+            }
+            return count;
+        },
+        pmf: fn(k) {
+            let coeff = math_binomial(n, k);
+            return coeff * pow(p, k) * pow(1.0 - p, n - k);
+        }
+    };
+}
+
+fn dist_poisson(lambda) {
+    // Poisson distribution
+    return {
+        type: "poisson",
+        lambda: lambda,
+        sample: fn() {
+            let L = exp(-lambda);
+            let k = 0;
+            let p = 1.0;
+            
+            while (p > L) {
+                k = k + 1;
+                p = p * random();
+            }
+            
+            return k - 1;
+        },
+        pmf: fn(k) {
+            return (pow(lambda, k) * exp(-lambda)) / math_factorial(k);
+        }
+    };
+}
+
+fn dist_exponential(rate) {
+    // Exponential distribution
+    return {
+        type: "exponential",
+        rate: rate,
+        sample: fn() {
+            return -log(random()) / rate;
+        },
+        pdf: fn(x) {
+            if (x >= 0) {
+                return rate * exp(-rate * x);
+            }
+            return 0.0;
+        }
+    };
+}
+
+// ===== BAYESIAN INFERENCE =====
+
+fn bayes_update(prior, likelihood, evidence) {
+    // Bayesian update: P(H|E) = P(E|H) * P(H) / P(E)
+    return (likelihood * prior) / evidence;
+}
+
+fn bayes_posterior(prior, likelihood, data) {
+    // Compute posterior distribution
+    let evidence = 0.0;
+    
+    // Compute evidence (marginal likelihood)
+    arr_forEach(data, fn(d) {
+        evidence = evidence + likelihood(d) * prior;
+    });
+    
+    return bayes_update(prior, likelihood(data[0]), evidence);
+}
+
+// ===== MONTE CARLO SAMPLING =====
+
+fn mc_sample(dist, n) {
+    // Generate n samples from distribution
+    let samples = [];
+    let i = 0;
+    
+    while (i < n) {
+        arr_push(samples, dist.sample());
+        i = i + 1;
+    }
+    
+    return samples;
+}
+
+fn mc_estimate(f, dist, n) {
+    // Monte Carlo estimation of E[f(X)]
+    let samples = mc_sample(dist, n);
+    let sum = 0.0;
+    
+    arr_forEach(samples, fn(x) {
+        sum = sum + f(x);
+    });
+    
+    return sum / n;
+}
+
+// ===== MARKOV CHAIN MONTE CARLO (MCMC) =====
+
+fn mcmc_metropolisHastings(target, proposal, initial, iterations) {
+    // Metropolis-Hastings algorithm
+    let samples = [initial];
+    let current = initial;
+    
+    let i = 0;
+    while (i < iterations) {
+        // Propose new state
+        let proposed = proposal(current);
+        
+        // Acceptance ratio
+        let ratio = target(proposed) / target(current);
+        
+        // Accept or reject
+        if (random() < ratio) {
+            current = proposed;
+        }
+        
+        arr_push(samples, current);
+        i = i + 1;
+    }
+    
+    return samples;
+}
+
+fn mcmc_gibbs(conditionals, initial, iterations) {
+    // Gibbs sampling
+    let samples = [initial];
+    let current = arr_clone(initial);
+    
+    let i = 0;
+    while (i < iterations) {
+        // Update each variable
+        let j = 0;
+        while (j < arr_length(current)) {
+            current[j] = conditionals[j](current).sample();
+            j = j + 1;
+        }
+        
+        arr_push(samples, arr_clone(current));
+        i = i + 1;
+    }
+    
+    return samples;
+}
+
+// ===== PARTICLE FILTER =====
+
+fn particlefilter_create(numParticles, initialDist) {
+    // Create particle filter
+    let particles = mc_sample(initialDist, numParticles);
+    let weights = arr_fill(numParticles, 1.0 / numParticles);
+    
+    return {
+        particles: particles,
+        weights: weights
+    };
+}
+
+fn particlefilter_update(pf, observation, likelihood, transition) {
+    // Update particle filter
+    let newParticles = [];
+    let newWeights = [];
+    
+    // Predict
+    arr_forEach(pf.particles, fn(particle) {
+        arr_push(newParticles, transition(particle));
+    });
+    
+    // Update weights
+    let totalWeight = 0.0;
+    let i = 0;
+    while (i < arr_length(newParticles)) {
+        let weight = pf.weights[i] * likelihood(observation, newParticles[i]);
+        arr_push(newWeights, weight);
+        totalWeight = totalWeight + weight;
+        i = i + 1;
+    }
+    
+    // Normalize weights
+    newWeights = arr_map(newWeights, fn(w) { return w / totalWeight; });
+    
+    // Resample
+    let resampledParticles = particlefilter_resample(newParticles, newWeights);
+    
+    return {
+        particles: resampledParticles,
+        weights: arr_fill(arr_length(resampledParticles), 1.0 / arr_length(resampledParticles))
+    };
+}
+
+fn particlefilter_resample(particles, weights) {
+    // Systematic resampling
+    let n = arr_length(particles);
+    let resampled = [];
+    let cumsum = 0.0;
+    let u = random() / n;
+    
+    let i = 0;
+    let j = 0;
+    
+    while (j < n) {
+        while (cumsum < u) {
+            cumsum = cumsum + weights[i];
+            i = i + 1;
+        }
+        
+        arr_push(resampled, particles[i - 1]);
+        u = u + 1.0 / n;
+        j = j + 1;
+    }
+    
+    return resampled;
+}
+
+// ===== VARIATIONAL INFERENCE =====
+
+fn vi_elbo(data, params, prior, likelihood) {
+    // Evidence Lower Bound (ELBO)
+    let logLikelihood = 0.0;
+    
+    arr_forEach(data, fn(d) {
+        logLikelihood = logLikelihood + log(likelihood(d, params));
+    });
+    
+    let kl = vi_klDivergence(params, prior);
+    
+    return logLikelihood - kl;
+}
+
+fn vi_klDivergence(q, p) {
+    // KL divergence between distributions
+    // KL(q||p) = E_q[log(q/p)]
+    
+    let samples = mc_sample(q, 1000);
+    let sum = 0.0;
+    
+    arr_forEach(samples, fn(x) {
+        sum = sum + log(q.pdf(x) / p.pdf(x));
+    });
+    
+    return sum / arr_length(samples);
+}
+
+// ===== PROBABILISTIC PROGRAMMING =====
+
+fn prob_model(fn) {
+    // Create probabilistic model
+    return {
+        fn: fn,
+        trace: []
+    };
+}
+
+fn prob_sample(dist, name) {
+    // Sample from distribution (traced)
+    let value = dist.sample();
+    // TODO: Add to trace
+    return value;
+}
+
+fn prob_observe(dist, value) {
+    // Observe value from distribution
+    // TODO: Add to trace with likelihood
+    return dist.pdf(value);
+}
+
+fn prob_infer(model, observations, method) {
+    // Perform inference
+    if (method == "mcmc") {
+        // MCMC inference
+        return mcmc_metropolisHastings(
+            fn(params) { return model.fn(params); },
+            fn(params) { return params + dist_normal(0, 0.1).sample(); },
+            0.0,
+            10000
+        );
+    } else if (method == "vi") {
+        // Variational inference
+        // TODO: Implement VI
+    }
+    
+    return null;
+}
+
+// ===== GAUSSIAN PROCESS =====
+
+fn gp_kernel_rbf(lengthscale, variance) {
+    // RBF (Gaussian) kernel
+    return fn(x1, x2) {
+        let diff = x1 - x2;
+        return variance * exp(-(diff * diff) / (2.0 * lengthscale * lengthscale));
+    };
+}
+
+fn gp_create(kernel, mean) {
+    // Create Gaussian process
+    return {
+        kernel: kernel,
+        mean: mean || fn(x) { return 0.0; }
+    };
+}
+
+fn gp_predict(gp, trainX, trainY, testX) {
+    // GP prediction
+    let n = arr_length(trainX);
+    let m = arr_length(testX);
+    
+    // Compute kernel matrices
+    let K = matrix_create(n, n);
+    let Ks = matrix_create(n, m);
+    let Kss = matrix_create(m, m);
+    
+    // TODO: Implement full GP prediction
+    
+    return {
+        mean: [],
+        variance: []
+    };
+}

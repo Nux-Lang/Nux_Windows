@@ -1,0 +1,110 @@
+# Nux Configuration Library
+# Parse configuration files
+
+import "std.collections";
+
+class INIParser {
+    var sections;
+    
+    func init() {
+        this.sections = new Map();
+        this.sections.init();
+    }
+    
+    func parse(filename) {
+        var file = file_open(filename, "r");
+        var current_section = "default";
+        
+        for (;;) {
+            var line = file_readline(file);
+            if (line == 0) {
+                break;
+            }
+            
+            # Check for section header [section]
+            # ... (implementation)
+            
+            # Parse key=value pairs
+            # ... (implementation)
+        }
+        
+        file_close(file);
+    }
+    
+    func get(section, key) {
+        var sec = this.sections.get(section);
+        if (sec == 0) {
+            return 0;
+        }
+        return sec.get(key);
+    }
+}
+
+class ConfigManager {
+    var config;
+    var config_file;
+    
+    func init(filename) {
+        this.config_file = filename;
+        this.config = new Map();
+        this.config.init();
+        
+        this.load();
+    }
+    
+    func load() {
+        var parser = new INIParser();
+        parser.parse(this.config_file);
+        this.config = parser.sections;
+    }
+    
+    func get(key, default_value) {
+        var value = this.config.get(key);
+        if (value == 0) {
+            return default_value;
+        }
+        return value;
+    }
+    
+    func set(key, value) {
+        this.config.put(key, value);
+    }
+    
+    func save() {
+        var file = file_open(this.config_file, "w");
+        
+        # Write config to file
+        # ... (implementation)
+        
+        file_close(file);
+    }
+}
+
+class Environment {
+    var vars;
+    
+    func init() {
+        this.vars = new Map();
+        this.vars.init();
+        
+        this.load_env();
+    }
+    
+    func load_env() {
+        # Load environment variables
+        # ... (implementation)
+    }
+    
+    func get(key, default_value) {
+        var value = env_get(key);
+        if (value == 0) {
+            return default_value;
+        }
+        return value;
+    }
+    
+    func set(key, value) {
+        env_set(key, value);
+        this.vars.put(key, value);
+    }
+}

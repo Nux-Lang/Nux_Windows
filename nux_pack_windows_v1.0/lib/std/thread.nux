@@ -1,0 +1,214 @@
+# Nux Threading Library
+# Thread management and synchronization
+
+# Thread creation
+func thread_create(entry_point, arg) {
+    asm {
+        entry_point
+        arg
+        OP_THREAD_CREATE
+    }
+}
+
+func thread_exit(exit_code) {
+    asm {
+        exit_code
+        OP_THREAD_EXIT
+    }
+}
+
+func thread_join(thread_id) {
+    asm {
+        thread_id
+        OP_THREAD_JOIN
+    }
+}
+
+func thread_detach(thread_id) {
+    asm {
+        thread_id
+        OP_THREAD_DETACH
+    }
+}
+
+func thread_yield() {
+    asm {
+        OP_THREAD_YIELD
+    }
+}
+
+func thread_sleep(milliseconds) {
+    asm {
+        milliseconds
+        OP_SLEEP
+    }
+}
+
+# Thread-local storage
+func tls_alloc() {
+    asm {
+        OP_TLS_ALLOC
+    }
+}
+
+func tls_set(key, value) {
+    asm {
+        key
+        value
+        OP_TLS_SET
+    }
+}
+
+func tls_get(key) {
+    asm {
+        key
+        OP_TLS_GET
+    }
+}
+
+# Mutex implementation
+class Mutex {
+    var lock_addr;
+    var owner;
+    
+    func init() {
+        this.lock_addr = mem_alloc_aligned(8, 8);
+        atomic_store(this.lock_addr, 0);
+        this.owner = 0;
+    }
+    
+    func lock() {
+        var expected = 0;
+        var desired = 1;
+        for (;;) {
+            if (atomic_cas(this.lock_addr, expected, desired) == expected) {
+                break;
+            }
+            thread_yield();
+        }
+    }
+    
+    func unlock() {
+        atomic_store(this.lock_addr, 0);
+    }
+    
+    func try_lock() {
+        var expected = 0;
+        var desired = 1;
+        return atomic_cas(this.lock_addr, expected, desired) == expected;
+    }
+}
+
+# Semaphore implementation
+class Semaphore {
+    var count_addr;
+    var max_count;
+    
+    func init(initial_count, max) {
+        this.count_addr = mem_alloc_aligned(8, 8);
+        atomic_store(this.count_addr, initial_count);
+        this.max_count = max;
+    }
+    
+    func wait() {
+        for (;;) {
+            var current = atomic_load(this.count_addr);
+            if (current > 0) {
+                if (atomic_cas(this.count_addr, current, current - 1) == current) {
+                    break;
+                }
+            }
+            thread_yield();
+        }
+    }
+    
+    func signal() {
+        for (;;) {
+            var current = atomic_load(this.count_addr);
+            if (current < this.max_count) {
+                if (atomic_cas(this.count_addr, current, current + 1) == current) {
+                    break;
+                }
+            }
+            thread_yield();
+        }
+    }
+}
+
+# Condition variable
+class CondVar {
+    var waiters_addr;
+    
+    func init() {
+        this.waiters_addr = mem_alloc_aligned(8, 8);
+        atomic_store(this.waiters_addr, 0);
+    }
+    
+    func wait(mutex) {
+        atomic_inc(this.waiters_addr);
+        mutex.unlock();
+        
+        # Simplified wait - in real implementation would use futex
+        for (;;) {
+            var waiters = atomic_load(this.waiters_addr);
+            if (waiters == 0) {
+                break;
+            }
+            thread_yield();
+        }
+        
+        mutex.lock();
+    }
+    
+    func signal() {
+        var waiters = atomic_load(this.waiters_addr);
+        if (waiters > 0) {
+            atomic_dec(this.waiters_addr);
+        }
+    }
+    
+    func broadcast() {
+        atomic_store(this.waiters_addr, 0);
+    }
+}
+
+# Read-Write lock
+class RWLock {
+    var state_addr;
+    
+    func init() {
+        this.state_addr = mem_alloc_aligned(8, 8);
+        atomic_store(this.state_addr, 0);
+    }
+    
+    func read_lock() {
+        for (;;) {
+            var state = atomic_load(this.state_addr);
+            if (state >= 0) {
+                if (atomic_cas(this.state_addr, state, state + 1) == state) {
+                    break;
+                }
+            }
+            thread_yield();
+        }
+    }
+    
+    func read_unlock() {
+        atomic_dec(this.state_addr);
+    }
+    
+    func write_lock() {
+        for (;;) {
+            var expected = 0;
+            var desired = 0 - 1;
+            if (atomic_cas(this.state_addr, expected, desired) == expected) {
+                break;
+            }
+            thread_yield();
+        }
+    }
+    
+    func write_unlock() {
+        atomic_store(this.state_addr, 0);
+    }
+}

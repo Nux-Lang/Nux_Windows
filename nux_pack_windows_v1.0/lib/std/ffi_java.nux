@@ -1,0 +1,116 @@
+# Nux Java FFI Library
+# Bindings for Java/JVM compiler tools
+
+# JNI initialization
+func java_init(jvm_path) {
+    asm {
+        jvm_path
+        OP_FFI_JAVA_INIT
+    }
+}
+
+# ANTLR v4 integration
+func java_antlr_parse(grammar_class, input) {
+    asm {
+        grammar_class
+        input
+        OP_FFI_JAVA_ANTLR_PARSE
+    }
+}
+
+# JavaCC parser
+func java_javacc_parse(parser_class, input) {
+    asm {
+        parser_class
+        input
+        OP_FFI_JAVA_JAVACC_PARSE
+    }
+}
+
+# JFlex lexer
+func java_jflex_lex(lexer_class, input) {
+    asm {
+        lexer_class
+        input
+        OP_FFI_JAVA_JFLEX_LEX
+    }
+}
+
+# ASM bytecode generation
+class JavaASM {
+    var class_writer;
+    
+    func init(class_name) {
+        asm {
+            class_name
+            OP_FFI_JAVA_ASM_INIT
+        }
+    }
+    
+    func add_method(name, descriptor, code) {
+        asm {
+            this.class_writer
+            name
+            descriptor
+            code
+            OP_FFI_JAVA_ASM_ADD_METHOD
+        }
+    }
+    
+    func to_bytecode() {
+        asm {
+            this.class_writer
+            OP_FFI_JAVA_ASM_TO_BYTECODE
+        }
+    }
+}
+
+# Call Java method
+func call_java_method(class_name, method_name, signature, args) {
+    asm {
+        class_name
+        method_name
+        signature
+        args
+        OP_FFI_CALL_JAVA_METHOD
+    }
+}
+
+# Create Java object
+func new_java_object(class_name, constructor_sig, args) {
+    asm {
+        class_name
+        constructor_sig
+        args
+        OP_FFI_NEW_JAVA_OBJECT
+    }
+}
+
+# Export to JVM
+func export_to_jvm(class_name, method_name, func_ptr) {
+    asm {
+        class_name
+        method_name
+        func_ptr
+        OP_FFI_EXPORT_TO_JVM
+    }
+}
+
+# Java object wrapper
+class JavaObject {
+    var jobject;
+    
+    func init(obj) {
+        this.jobject = obj;
+    }
+    
+    func call_method(method_name, signature, args) {
+        asm {
+            this.jobject
+            method_name
+            signature
+            args
+            OP_FFI_JAVA_CALL_METHOD
+        }
+    }
+}

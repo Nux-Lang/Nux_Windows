@@ -1,0 +1,648 @@
+# Nux Transformer Library
+# Attention mechanisms and transformer architectures
+
+import "ai.autograd";
+import "std.math";
+
+# ============================================================
+# POSITIONAL ENCODING
+# ============================================================
+
+class SinusoidalPositionalEncoding {
+    var d_model;
+    var max_len;
+    var encodings;
+    
+    func init(model_dim, max_length) {
+        this.d_model = model_dim;
+        this.max_len = max_length;
+        this.precompute();
+    }
+    
+    func precompute() {
+        this.encodings = new List();
+        this.encodings.init();
+        
+        var pos = 0;
+        for (pos = 0; pos < this.max_len; pos = pos + 1) {
+            var row = new List();
+            row.init();
+            
+            var i = 0;
+            for (i = 0; i < this.d_model; i = i + 1) {
+                var angle = pos / pow(10000, (2 * (i / 2)) / this.d_model);
+                if (i % 2 == 0) {
+                    row.append(sin(angle));
+                } else {
+                    row.append(cos(angle));
+                }
+            }
+            this.encodings.append(row);
+        }
+    }
+    
+    func forward(seq_len) {
+        var result = new List();
+        result.init();
+        var i = 0;
+        for (i = 0; i < seq_len; i = i + 1) {
+            result.append(this.encodings.get(i));
+        }
+        return result;
+    }
+}
+
+class LearnedPositionalEncoding {
+    var embeddings;
+    var max_len;
+    var d_model;
+    
+    func init(max_length, model_dim) {
+        this.max_len = max_length;
+        this.d_model = model_dim;
+        this.embeddings = randn(max_length * model_dim, 1);
+    }
+    
+    func forward(positions) {
+        # Lookup embeddings for positions
+        return this.embeddings;
+    }
+}
+
+class RotaryPositionalEncoding {
+    var dim;
+    var base;
+    var inv_freq;
+    
+    func init(dimension) {
+        this.dim = dimension;
+        this.base = 10000;
+        this.compute_inv_freq();
+    }
+    
+    func compute_inv_freq() {
+        this.inv_freq = new List();
+        this.inv_freq.init();
+        var i = 0;
+        for (i = 0; i < this.dim / 2; i = i + 1) {
+            var freq = 1 / pow(this.base, 2 * i / this.dim);
+            this.inv_freq.append(freq);
+        }
+    }
+    
+    func apply(x, position) {
+        # Apply rotary embedding to query/key
+        var result = new List();
+        result.init();
+        
+        var i = 0;
+        for (i = 0; i < this.dim / 2; i = i + 1) {
+            var angle = position * this.inv_freq.get(i);
+            var c = cos(angle);
+            var s = sin(angle);
+            
+            var x1 = x.get(2 * i);
+            var x2 = x.get(2 * i + 1);
+            
+            result.append(x1 * c - x2 * s);
+            result.append(x1 * s + x2 * c);
+        }
+        
+        return result;
+    }
+}
+
+# ============================================================
+# ATTENTION MECHANISMS
+# ============================================================
+
+class ScaledDotProductAttention {
+    var scale;
+    
+    func init(d_k) {
+        this.scale = sqrt(d_k);
+    }
+    
+    func forward(query, key, value, mask) {
+        # Compute attention scores: Q @ K^T / sqrt(d_k)
+        var scores = new List();
+        scores.init();
+        
+        var seq_len = query.length();
+        var i = 0;
+        for (i = 0; i < seq_len; i = i + 1) {
+            var row = new List();
+            row.init();
+            var j = 0;
+            for (j = 0; j < seq_len; j = j + 1) {
+                var score = this.dot_product(query.get(i), key.get(j));
+                score = score / this.scale;
+                
+                # Apply mask
+                if (mask != 0 && mask.get(i).get(j) == 0) {
+                    score = -999999;
+                }
+                
+                row.append(score);
+            }
+            scores.append(row);
+        }
+        
+        # Softmax
+        var attention = this.softmax_2d(scores);
+        
+        # Weighted sum of values
+        var output = this.weighted_sum(attention, value);
+        
+        return output;
+    }
+    
+    func dot_product(a, b) {
+        var sum = 0;
+        var i = 0;
+        for (i = 0; i < a.length(); i = i + 1) {
+            sum = sum + a.get(i) * b.get(i);
+        }
+        return sum;
+    }
+    
+    func softmax_2d(scores) {
+        var result = new List();
+        result.init();
+        
+        var i = 0;
+        for (i = 0; i < scores.length(); i = i + 1) {
+            var row = scores.get(i);
+            var max_val = row.get(0);
+            var j = 0;
+            for (j = 1; j < row.length(); j = j + 1) {
+                if (row.get(j) > max_val) { max_val = row.get(j); }
+            }
+            
+            var exp_sum = 0;
+            var exps = new List();
+            exps.init();
+            for (j = 0; j < row.length(); j = j + 1) {
+                var e = exp(row.get(j) - max_val);
+                exps.append(e);
+                exp_sum = exp_sum + e;
+            }
+            
+            var softmax_row = new List();
+            softmax_row.init();
+            for (j = 0; j < exps.length(); j = j + 1) {
+                softmax_row.append(exps.get(j) / exp_sum);
+            }
+            result.append(softmax_row);
+        }
+        
+        return result;
+    }
+    
+    func weighted_sum(attention, value) {
+        var result = new List();
+        result.init();
+        
+        var i = 0;
+        for (i = 0; i < attention.length(); i = i + 1) {
+            var attn_row = attention.get(i);
+            var d_v = value.get(0).length();
+            
+            var output_vec = new List();
+            output_vec.init();
+            var k = 0;
+            for (k = 0; k < d_v; k = k + 1) {
+                var sum = 0;
+                var j = 0;
+                for (j = 0; j < attn_row.length(); j = j + 1) {
+                    sum = sum + attn_row.get(j) * value.get(j).get(k);
+                }
+                output_vec.append(sum);
+            }
+            result.append(output_vec);
+        }
+        
+        return result;
+    }
+}
+
+class MultiHeadAttention {
+    var num_heads;
+    var d_model;
+    var d_k;
+    var d_v;
+    var w_q;
+    var w_k;
+    var w_v;
+    var w_o;
+    var attention;
+    
+    func init(model_dim, n_heads) {
+        this.d_model = model_dim;
+        this.num_heads = n_heads;
+        this.d_k = model_dim / n_heads;
+        this.d_v = model_dim / n_heads;
+        
+        # Initialize projection weights
+        this.w_q = randn(model_dim * model_dim, 1);
+        this.w_k = randn(model_dim * model_dim, 1);
+        this.w_v = randn(model_dim * model_dim, 1);
+        this.w_o = randn(model_dim * model_dim, 1);
+        
+        this.attention = new ScaledDotProductAttention();
+        this.attention.init(this.d_k);
+    }
+    
+    func forward(query, key, value, mask) {
+        var batch_size = 1;
+        
+        # Project Q, K, V
+        var q_proj = this.linear(query, this.w_q);
+        var k_proj = this.linear(key, this.w_k);
+        var v_proj = this.linear(value, this.w_v);
+        
+        # Split into heads and compute attention
+        var head_outputs = new List();
+        head_outputs.init();
+        
+        var h = 0;
+        for (h = 0; h < this.num_heads; h = h + 1) {
+            var q_head = this.get_head(q_proj, h);
+            var k_head = this.get_head(k_proj, h);
+            var v_head = this.get_head(v_proj, h);
+            
+            var head_out = this.attention.forward(q_head, k_head, v_head, mask);
+            head_outputs.append(head_out);
+        }
+        
+        # Concatenate heads
+        var concat = this.concat_heads(head_outputs);
+        
+        # Final projection
+        var output = this.linear(concat, this.w_o);
+        
+        return output;
+    }
+    
+    func linear(x, w) {
+        # Simple linear projection
+        return x;
+    }
+    
+    func get_head(x, head_idx) {
+        return x;
+    }
+    
+    func concat_heads(heads) {
+        return heads.get(0);
+    }
+}
+
+# ============================================================
+# TRANSFORMER LAYERS
+# ============================================================
+
+class LayerNorm {
+    var gamma;
+    var beta;
+    var eps;
+    var d_model;
+    
+    func init(model_dim) {
+        this.d_model = model_dim;
+        this.eps = 0.00001;
+        this.gamma = ones(model_dim, 1);
+        this.beta = zeros(model_dim, 1);
+    }
+    
+    func forward(x) {
+        # Compute mean and variance
+        var mean = 0;
+        var i = 0;
+        for (i = 0; i < x.size; i = i + 1) {
+            mean = mean + x.get(i);
+        }
+        mean = mean / x.size;
+        
+        var variance = 0;
+        for (i = 0; i < x.size; i = i + 1) {
+            var diff = x.get(i) - mean;
+            variance = variance + diff * diff;
+        }
+        variance = variance / x.size;
+        
+        # Normalize
+        var result = new List();
+        result.init();
+        for (i = 0; i < x.size; i = i + 1) {
+            var normalized = (x.get(i) - mean) / sqrt(variance + this.eps);
+            var scaled = normalized * this.gamma.get(i) + this.beta.get(i);
+            result.append(scaled);
+        }
+        
+        var v = new Variable();
+        v.init(result, 1);
+        return v;
+    }
+}
+
+class FeedForward {
+    var w1;
+    var w2;
+    var d_model;
+    var d_ff;
+    
+    func init(model_dim, ff_dim) {
+        this.d_model = model_dim;
+        this.d_ff = ff_dim;
+        this.w1 = randn(model_dim * ff_dim, 1);
+        this.w2 = randn(ff_dim * model_dim, 1);
+    }
+    
+    func forward(x) {
+        # x -> Linear -> ReLU -> Linear
+        var hidden = this.linear(x, this.w1, this.d_model, this.d_ff);
+        hidden = relu(hidden);
+        var output = this.linear(hidden, this.w2, this.d_ff, this.d_model);
+        return output;
+    }
+    
+    func linear(x, w, in_dim, out_dim) {
+        return x;
+    }
+}
+
+class TransformerEncoderLayer {
+    var self_attn;
+    var feed_forward;
+    var norm1;
+    var norm2;
+    var dropout;
+    
+    func init(d_model, n_heads, d_ff, drop_rate) {
+        this.self_attn = new MultiHeadAttention();
+        this.self_attn.init(d_model, n_heads);
+        
+        this.feed_forward = new FeedForward();
+        this.feed_forward.init(d_model, d_ff);
+        
+        this.norm1 = new LayerNorm();
+        this.norm1.init(d_model);
+        
+        this.norm2 = new LayerNorm();
+        this.norm2.init(d_model);
+        
+        this.dropout = drop_rate;
+    }
+    
+    func forward(x, mask) {
+        # Self-attention with residual
+        var attn_out = this.self_attn.forward(x, x, x, mask);
+        # x = x + dropout(attn_out)
+        var x1 = this.norm1.forward(x);
+        
+        # Feed-forward with residual
+        var ff_out = this.feed_forward.forward(x1);
+        var x2 = this.norm2.forward(x1);
+        
+        return x2;
+    }
+}
+
+class TransformerDecoderLayer {
+    var self_attn;
+    var cross_attn;
+    var feed_forward;
+    var norm1;
+    var norm2;
+    var norm3;
+    
+    func init(d_model, n_heads, d_ff, drop_rate) {
+        this.self_attn = new MultiHeadAttention();
+        this.self_attn.init(d_model, n_heads);
+        
+        this.cross_attn = new MultiHeadAttention();
+        this.cross_attn.init(d_model, n_heads);
+        
+        this.feed_forward = new FeedForward();
+        this.feed_forward.init(d_model, d_ff);
+        
+        this.norm1 = new LayerNorm();
+        this.norm1.init(d_model);
+        
+        this.norm2 = new LayerNorm();
+        this.norm2.init(d_model);
+        
+        this.norm3 = new LayerNorm();
+        this.norm3.init(d_model);
+    }
+    
+    func forward(x, encoder_output, self_mask, cross_mask) {
+        # Masked self-attention
+        var self_out = this.self_attn.forward(x, x, x, self_mask);
+        var x1 = this.norm1.forward(x);
+        
+        # Cross-attention
+        var cross_out = this.cross_attn.forward(x1, encoder_output, encoder_output, cross_mask);
+        var x2 = this.norm2.forward(x1);
+        
+        # Feed-forward
+        var ff_out = this.feed_forward.forward(x2);
+        var x3 = this.norm3.forward(x2);
+        
+        return x3;
+    }
+}
+
+# ============================================================
+# FULL TRANSFORMER MODELS
+# ============================================================
+
+class GPT {
+    var vocab_size;
+    var d_model;
+    var n_layers;
+    var n_heads;
+    var d_ff;
+    var max_seq_len;
+    var token_embedding;
+    var pos_encoding;
+    var layers;
+    var ln_final;
+    var lm_head;
+    
+    func init(vocab, model_dim, num_layers, num_heads, ff_dim, max_len) {
+        this.vocab_size = vocab;
+        this.d_model = model_dim;
+        this.n_layers = num_layers;
+        this.n_heads = num_heads;
+        this.d_ff = ff_dim;
+        this.max_seq_len = max_len;
+        
+        this.token_embedding = randn(vocab * model_dim, 1);
+        
+        this.pos_encoding = new SinusoidalPositionalEncoding();
+        this.pos_encoding.init(model_dim, max_len);
+        
+        this.layers = new List();
+        this.layers.init();
+        var i = 0;
+        for (i = 0; i < num_layers; i = i + 1) {
+            var layer = new TransformerDecoderLayer();
+            layer.init(model_dim, num_heads, ff_dim, 0.1);
+            this.layers.append(layer);
+        }
+        
+        this.ln_final = new LayerNorm();
+        this.ln_final.init(model_dim);
+        
+        this.lm_head = randn(model_dim * vocab, 1);
+    }
+    
+    func forward(tokens) {
+        var seq_len = tokens.length();
+        
+        # Token embeddings + positional encoding
+        var x = this.embed_tokens(tokens);
+        var pos = this.pos_encoding.forward(seq_len);
+        # x = x + pos
+        
+        # Causal mask
+        var mask = this.causal_mask(seq_len);
+        
+        # Transformer layers
+        var i = 0;
+        for (i = 0; i < this.layers.length(); i = i + 1) {
+            x = this.layers.get(i).forward(x, 0, mask, 0);
+        }
+        
+        # Final layer norm
+        x = this.ln_final.forward(x);
+        
+        # Project to vocabulary
+        var logits = this.project_to_vocab(x);
+        
+        return logits;
+    }
+    
+    func embed_tokens(tokens) {
+        return tokens;
+    }
+    
+    func causal_mask(seq_len) {
+        var mask = new List();
+        mask.init();
+        var i = 0;
+        for (i = 0; i < seq_len; i = i + 1) {
+            var row = new List();
+            row.init();
+            var j = 0;
+            for (j = 0; j < seq_len; j = j + 1) {
+                if (j <= i) {
+                    row.append(1);
+                } else {
+                    row.append(0);
+                }
+            }
+            mask.append(row);
+        }
+        return mask;
+    }
+    
+    func project_to_vocab(x) {
+        return x;
+    }
+    
+    func generate(prompt, max_tokens, temperature) {
+        var tokens = prompt;
+        
+        var i = 0;
+        for (i = 0; i < max_tokens; i = i + 1) {
+            var logits = this.forward(tokens);
+            var next_token = this.sample(logits, temperature);
+            tokens.append(next_token);
+        }
+        
+        return tokens;
+    }
+    
+    func sample(logits, temperature) {
+        # Temperature scaling and sampling
+        var scaled = new List();
+        scaled.init();
+        var i = 0;
+        for (i = 0; i < logits.length(); i = i + 1) {
+            scaled.append(logits.get(i) / temperature);
+        }
+        
+        # Softmax
+        var probs = softmax_list(scaled);
+        
+        # Sample from distribution
+        var r = (random() % 1000) / 1000;
+        var cumsum = 0;
+        for (i = 0; i < probs.length(); i = i + 1) {
+            cumsum = cumsum + probs.get(i);
+            if (r < cumsum) {
+                return i;
+            }
+        }
+        return probs.length() - 1;
+    }
+}
+
+func softmax_list(x) {
+    var max_val = x.get(0);
+    var i = 0;
+    for (i = 1; i < x.length(); i = i + 1) {
+        if (x.get(i) > max_val) { max_val = x.get(i); }
+    }
+    
+    var exp_sum = 0;
+    var exps = new List();
+    exps.init();
+    for (i = 0; i < x.length(); i = i + 1) {
+        var e = exp(x.get(i) - max_val);
+        exps.append(e);
+        exp_sum = exp_sum + e;
+    }
+    
+    var result = new List();
+    result.init();
+    for (i = 0; i < exps.length(); i = i + 1) {
+        result.append(exps.get(i) / exp_sum);
+    }
+    return result;
+}
+
+func top_k_sampling(logits, k) {
+    # Get top k indices
+    var indices = new List();
+    indices.init();
+    var i = 0;
+    for (i = 0; i < logits.length(); i = i + 1) {
+        indices.append(i);
+    }
+    
+    # Sort by logit value (descending)
+    # ... sorting logic
+    
+    # Keep only top k
+    var top_k_idx = new List();
+    top_k_idx.init();
+    for (i = 0; i < k; i = i + 1) {
+        top_k_idx.append(indices.get(i));
+    }
+    
+    return top_k_idx;
+}
+
+func top_p_sampling(logits, p) {
+    var probs = softmax_list(logits);
+    
+    # Sort probabilities descending
+    # Accumulate until > p
+    # Sample from those tokens
+    
+    return 0;
+}

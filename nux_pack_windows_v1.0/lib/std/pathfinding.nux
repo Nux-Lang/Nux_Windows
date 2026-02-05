@@ -1,0 +1,598 @@
+# Nux Pathfinding Library
+# A*, Dijkstra, NavMesh, and steering behaviors
+
+import "std.math";
+
+# ============================================================
+# PRIORITY QUEUE
+# ============================================================
+
+class PriorityQueue {
+    var heap;
+    
+    func init() {
+        this.heap = new List();
+        this.heap.init();
+    }
+    
+    func push(item, priority) {
+        var entry = new Map();
+        entry.init();
+        entry.put("item", item);
+        entry.put("priority", priority);
+        this.heap.append(entry);
+        this.bubble_up(this.heap.length() - 1);
+    }
+    
+    func pop() {
+        if (this.heap.length() == 0) { return 0; }
+        var result = this.heap.get(0).get("item");
+        var last = this.heap.pop();
+        if (this.heap.length() > 0) {
+            this.heap.set(0, last);
+            this.bubble_down(0);
+        }
+        return result;
+    }
+    
+    func bubble_up(idx) {
+        while (idx > 0) {
+            var parent = (idx - 1) / 2;
+            if (this.heap.get(idx).get("priority") < this.heap.get(parent).get("priority")) {
+                var temp = this.heap.get(idx);
+                this.heap.set(idx, this.heap.get(parent));
+                this.heap.set(parent, temp);
+                idx = parent;
+            } else {
+                break;
+            }
+        }
+    }
+    
+    func bubble_down(idx) {
+        var size = this.heap.length();
+        while (1) {
+            var smallest = idx;
+            var left = 2 * idx + 1;
+            var right = 2 * idx + 2;
+            
+            if (left < size && this.heap.get(left).get("priority") < this.heap.get(smallest).get("priority")) {
+                smallest = left;
+            }
+            if (right < size && this.heap.get(right).get("priority") < this.heap.get(smallest).get("priority")) {
+                smallest = right;
+            }
+            
+            if (smallest != idx) {
+                var temp = this.heap.get(idx);
+                this.heap.set(idx, this.heap.get(smallest));
+                this.heap.set(smallest, temp);
+                idx = smallest;
+            } else {
+                break;
+            }
+        }
+    }
+    
+    func is_empty() { return this.heap.length() == 0; }
+}
+
+# ============================================================
+# GRID-BASED PATHFINDING
+# ============================================================
+
+class GridNode {
+    var x;
+    var y;
+    var walkable;
+    var cost;
+    var g_cost;
+    var h_cost;
+    var parent;
+    
+    func init(px, py) {
+        this.x = px;
+        this.y = py;
+        this.walkable = 1;
+        this.cost = 1;
+        this.g_cost = 0;
+        this.h_cost = 0;
+        this.parent = 0;
+    }
+    
+    func f_cost() { return this.g_cost + this.h_cost; }
+}
+
+class PathGrid {
+    var width;
+    var height;
+    var nodes;
+    var diagonal;
+    
+    func init(w, h) {
+        this.width = w;
+        this.height = h;
+        this.diagonal = 1;
+        this.nodes = new List();
+        this.nodes.init();
+        
+        var y = 0;
+        for (y = 0; y < h; y = y + 1) {
+            var row = new List();
+            row.init();
+            var x = 0;
+            for (x = 0; x < w; x = x + 1) {
+                var node = new GridNode();
+                node.init(x, y);
+                row.append(node);
+            }
+            this.nodes.append(row);
+        }
+    }
+    
+    func get_node(x, y) {
+        if (x < 0 || x >= this.width) { return 0; }
+        if (y < 0 || y >= this.height) { return 0; }
+        return this.nodes.get(y).get(x);
+    }
+    
+    func set_walkable(x, y, walkable) {
+        var node = this.get_node(x, y);
+        if (node != 0) { node.walkable = walkable; }
+    }
+    
+    func get_neighbors(node) {
+        var neighbors = new List();
+        neighbors.init();
+        
+        var dirs = new List();
+        dirs.init();
+        dirs.append(-1); dirs.append(0);
+        dirs.append(1); dirs.append(0);
+        dirs.append(0); dirs.append(-1);
+        dirs.append(0); dirs.append(1);
+        
+        if (this.diagonal == 1) {
+            dirs.append(-1); dirs.append(-1);
+            dirs.append(1); dirs.append(-1);
+            dirs.append(-1); dirs.append(1);
+            dirs.append(1); dirs.append(1);
+        }
+        
+        var i = 0;
+        while (i < dirs.length()) {
+            var dx = dirs.get(i);
+            var dy = dirs.get(i + 1);
+            var neighbor = this.get_node(node.x + dx, node.y + dy);
+            if (neighbor != 0 && neighbor.walkable == 1) {
+                neighbors.append(neighbor);
+            }
+            i = i + 2;
+        }
+        
+        return neighbors;
+    }
+    
+    func reset() {
+        var y = 0;
+        for (y = 0; y < this.height; y = y + 1) {
+            var x = 0;
+            for (x = 0; x < this.width; x = x + 1) {
+                var node = this.get_node(x, y);
+                node.g_cost = 0;
+                node.h_cost = 0;
+                node.parent = 0;
+            }
+        }
+    }
+}
+
+# ============================================================
+# A* ALGORITHM
+# ============================================================
+
+func heuristic_manhattan(a, b) {
+    return abs(a.x - b.x) + abs(a.y - b.y);
+}
+
+func heuristic_euclidean(a, b) {
+    var dx = a.x - b.x;
+    var dy = a.y - b.y;
+    return sqrt(dx * dx + dy * dy);
+}
+
+func astar_find_path(grid, start_x, start_y, end_x, end_y) {
+    grid.reset();
+    
+    var start = grid.get_node(start_x, start_y);
+    var goal = grid.get_node(end_x, end_y);
+    
+    if (start == 0 || goal == 0) { return 0; }
+    if (start.walkable == 0 || goal.walkable == 0) { return 0; }
+    
+    var open_set = new PriorityQueue();
+    open_set.init();
+    var open_map = new Map();
+    open_map.init();
+    var closed_set = new Map();
+    closed_set.init();
+    
+    start.g_cost = 0;
+    start.h_cost = heuristic_manhattan(start, goal);
+    open_set.push(start, start.f_cost());
+    open_map.put(start.x * 10000 + start.y, 1);
+    
+    while (open_set.is_empty() == 0) {
+        var current = open_set.pop();
+        var key = current.x * 10000 + current.y;
+        open_map.remove(key);
+        closed_set.put(key, 1);
+        
+        if (current.x == goal.x && current.y == goal.y) {
+            return reconstruct_path(current);
+        }
+        
+        var neighbors = grid.get_neighbors(current);
+        var i = 0;
+        for (i = 0; i < neighbors.length(); i = i + 1) {
+            var neighbor = neighbors.get(i);
+            var neighbor_key = neighbor.x * 10000 + neighbor.y;
+            
+            if (closed_set.has(neighbor_key)) { continue; }
+            
+            var dx = abs(neighbor.x - current.x);
+            var dy = abs(neighbor.y - current.y);
+            var move_cost = 1;
+            if (dx + dy == 2) { move_cost = 1.414; }
+            
+            var tentative_g = current.g_cost + move_cost * neighbor.cost;
+            
+            if (open_map.has(neighbor_key) == 0 || tentative_g < neighbor.g_cost) {
+                neighbor.parent = current;
+                neighbor.g_cost = tentative_g;
+                neighbor.h_cost = heuristic_manhattan(neighbor, goal);
+                
+                if (open_map.has(neighbor_key) == 0) {
+                    open_set.push(neighbor, neighbor.f_cost());
+                    open_map.put(neighbor_key, 1);
+                }
+            }
+        }
+    }
+    
+    return 0;
+}
+
+func reconstruct_path(goal) {
+    var path = new List();
+    path.init();
+    var current = goal;
+    
+    while (current != 0) {
+        path.append(current);
+        current = current.parent;
+    }
+    
+    # Reverse path
+    var reversed = new List();
+    reversed.init();
+    var i = path.length() - 1;
+    while (i >= 0) {
+        reversed.append(path.get(i));
+        i = i - 1;
+    }
+    
+    return reversed;
+}
+
+# ============================================================
+# DIJKSTRA ALGORITHM
+# ============================================================
+
+func dijkstra_find_path(grid, start_x, start_y, end_x, end_y) {
+    grid.reset();
+    
+    var start = grid.get_node(start_x, start_y);
+    var goal = grid.get_node(end_x, end_y);
+    
+    if (start == 0 || goal == 0) { return 0; }
+    
+    var dist = new Map();
+    dist.init();
+    var pq = new PriorityQueue();
+    pq.init();
+    
+    start.g_cost = 0;
+    pq.push(start, 0);
+    dist.put(start.x * 10000 + start.y, 0);
+    
+    while (pq.is_empty() == 0) {
+        var current = pq.pop();
+        
+        if (current.x == goal.x && current.y == goal.y) {
+            return reconstruct_path(current);
+        }
+        
+        var neighbors = grid.get_neighbors(current);
+        var i = 0;
+        for (i = 0; i < neighbors.length(); i = i + 1) {
+            var neighbor = neighbors.get(i);
+            var alt = current.g_cost + neighbor.cost;
+            
+            var neighbor_key = neighbor.x * 10000 + neighbor.y;
+            var current_dist = 999999;
+            if (dist.has(neighbor_key)) {
+                current_dist = dist.get(neighbor_key);
+            }
+            
+            if (alt < current_dist) {
+                neighbor.g_cost = alt;
+                neighbor.parent = current;
+                dist.put(neighbor_key, alt);
+                pq.push(neighbor, alt);
+            }
+        }
+    }
+    
+    return 0;
+}
+
+# ============================================================
+# STEERING BEHAVIORS
+# ============================================================
+
+class SteeringAgent {
+    var position;
+    var velocity;
+    var max_speed;
+    var max_force;
+    var mass;
+    
+    func init(x, y) {
+        this.position = new List();
+        this.position.append(x);
+        this.position.append(y);
+        this.velocity = new List();
+        this.velocity.append(0);
+        this.velocity.append(0);
+        this.max_speed = 5;
+        this.max_force = 0.5;
+        this.mass = 1;
+    }
+    
+    func apply_force(force) {
+        var ax = force.get(0) / this.mass;
+        var ay = force.get(1) / this.mass;
+        this.velocity.set(0, this.velocity.get(0) + ax);
+        this.velocity.set(1, this.velocity.get(1) + ay);
+        
+        # Limit speed
+        var speed = sqrt(this.velocity.get(0) * this.velocity.get(0) + 
+                        this.velocity.get(1) * this.velocity.get(1));
+        if (speed > this.max_speed) {
+            this.velocity.set(0, this.velocity.get(0) / speed * this.max_speed);
+            this.velocity.set(1, this.velocity.get(1) / speed * this.max_speed);
+        }
+    }
+    
+    func update(dt) {
+        this.position.set(0, this.position.get(0) + this.velocity.get(0) * dt);
+        this.position.set(1, this.position.get(1) + this.velocity.get(1) * dt);
+    }
+}
+
+func steer_seek(agent, target_x, target_y) {
+    var dx = target_x - agent.position.get(0);
+    var dy = target_y - agent.position.get(1);
+    var dist = sqrt(dx * dx + dy * dy);
+    
+    if (dist > 0) {
+        dx = dx / dist * agent.max_speed;
+        dy = dy / dist * agent.max_speed;
+    }
+    
+    var sx = dx - agent.velocity.get(0);
+    var sy = dy - agent.velocity.get(1);
+    
+    var force = new List();
+    force.init();
+    force.append(sx);
+    force.append(sy);
+    return force;
+}
+
+func steer_flee(agent, target_x, target_y) {
+    var force = steer_seek(agent, target_x, target_y);
+    force.set(0, -force.get(0));
+    force.set(1, -force.get(1));
+    return force;
+}
+
+func steer_arrive(agent, target_x, target_y, slow_radius) {
+    var dx = target_x - agent.position.get(0);
+    var dy = target_y - agent.position.get(1);
+    var dist = sqrt(dx * dx + dy * dy);
+    
+    var speed = agent.max_speed;
+    if (dist < slow_radius) {
+        speed = agent.max_speed * dist / slow_radius;
+    }
+    
+    if (dist > 0) {
+        dx = dx / dist * speed;
+        dy = dy / dist * speed;
+    }
+    
+    var sx = dx - agent.velocity.get(0);
+    var sy = dy - agent.velocity.get(1);
+    
+    var force = new List();
+    force.init();
+    force.append(sx);
+    force.append(sy);
+    return force;
+}
+
+func steer_wander(agent, wander_radius, wander_dist) {
+    var angle = (random() % 360) * 3.14159 / 180;
+    
+    var vx = agent.velocity.get(0);
+    var vy = agent.velocity.get(1);
+    var speed = sqrt(vx * vx + vy * vy);
+    
+    if (speed > 0) {
+        vx = vx / speed;
+        vy = vy / speed;
+    } else {
+        vx = 1;
+        vy = 0;
+    }
+    
+    var cx = agent.position.get(0) + vx * wander_dist;
+    var cy = agent.position.get(1) + vy * wander_dist;
+    
+    var tx = cx + cos(angle) * wander_radius;
+    var ty = cy + sin(angle) * wander_radius;
+    
+    return steer_seek(agent, tx, ty);
+}
+
+func steer_separation(agent, neighbors, separation_dist) {
+    var sx = 0;
+    var sy = 0;
+    var count = 0;
+    
+    var i = 0;
+    for (i = 0; i < neighbors.length(); i = i + 1) {
+        var other = neighbors.get(i);
+        var dx = agent.position.get(0) - other.position.get(0);
+        var dy = agent.position.get(1) - other.position.get(1);
+        var dist = sqrt(dx * dx + dy * dy);
+        
+        if (dist > 0 && dist < separation_dist) {
+            sx = sx + dx / dist;
+            sy = sy + dy / dist;
+            count = count + 1;
+        }
+    }
+    
+    if (count > 0) {
+        sx = sx / count;
+        sy = sy / count;
+    }
+    
+    var force = new List();
+    force.init();
+    force.append(sx);
+    force.append(sy);
+    return force;
+}
+
+func steer_cohesion(agent, neighbors) {
+    var cx = 0;
+    var cy = 0;
+    var count = 0;
+    
+    var i = 0;
+    for (i = 0; i < neighbors.length(); i = i + 1) {
+        var other = neighbors.get(i);
+        cx = cx + other.position.get(0);
+        cy = cy + other.position.get(1);
+        count = count + 1;
+    }
+    
+    if (count > 0) {
+        cx = cx / count;
+        cy = cy / count;
+        return steer_seek(agent, cx, cy);
+    }
+    
+    var force = new List();
+    force.init();
+    force.append(0);
+    force.append(0);
+    return force;
+}
+
+func steer_alignment(agent, neighbors) {
+    var vx = 0;
+    var vy = 0;
+    var count = 0;
+    
+    var i = 0;
+    for (i = 0; i < neighbors.length(); i = i + 1) {
+        var other = neighbors.get(i);
+        vx = vx + other.velocity.get(0);
+        vy = vy + other.velocity.get(1);
+        count = count + 1;
+    }
+    
+    if (count > 0) {
+        vx = vx / count;
+        vy = vy / count;
+        
+        var sx = vx - agent.velocity.get(0);
+        var sy = vy - agent.velocity.get(1);
+        
+        var force = new List();
+        force.init();
+        force.append(sx);
+        force.append(sy);
+        return force;
+    }
+    
+    var force = new List();
+    force.init();
+    force.append(0);
+    force.append(0);
+    return force;
+}
+
+# ============================================================
+# PATH FOLLOWER
+# ============================================================
+
+class PathFollower {
+    var agent;
+    var path;
+    var current_waypoint;
+    var waypoint_radius;
+    
+    func init(steering_agent) {
+        this.agent = steering_agent;
+        this.path = 0;
+        this.current_waypoint = 0;
+        this.waypoint_radius = 10;
+    }
+    
+    func set_path(p) {
+        this.path = p;
+        this.current_waypoint = 0;
+    }
+    
+    func update() {
+        if (this.path == 0 || this.path.length() == 0) { return; }
+        
+        var target = this.path.get(this.current_waypoint);
+        var tx = target.x;
+        var ty = target.y;
+        
+        var dx = tx - this.agent.position.get(0);
+        var dy = ty - this.agent.position.get(1);
+        var dist = sqrt(dx * dx + dy * dy);
+        
+        if (dist < this.waypoint_radius) {
+            this.current_waypoint = this.current_waypoint + 1;
+            if (this.current_waypoint >= this.path.length()) {
+                this.current_waypoint = this.path.length() - 1;
+            }
+        }
+        
+        var force = steer_seek(this.agent, tx, ty);
+        this.agent.apply_force(force);
+    }
+    
+    func is_complete() {
+        return this.current_waypoint >= this.path.length() - 1;
+    }
+}

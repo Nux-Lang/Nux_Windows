@@ -1,0 +1,571 @@
+# Nux Animation Library
+# Skeletal animation, tweening, and state machines
+
+import "std.math";
+
+# ============================================================
+# EASING FUNCTIONS
+# ============================================================
+
+func ease_linear(t) { return t; }
+
+func ease_in_quad(t) { return t * t; }
+func ease_out_quad(t) { return t * (2 - t); }
+func ease_in_out_quad(t) {
+    if (t < 0.5) { return 2 * t * t; }
+    return -1 + (4 - 2 * t) * t;
+}
+
+func ease_in_cubic(t) { return t * t * t; }
+func ease_out_cubic(t) { var t1 = t - 1; return t1 * t1 * t1 + 1; }
+
+func ease_in_sine(t) { return 1 - cos(t * 3.14159 / 2); }
+func ease_out_sine(t) { return sin(t * 3.14159 / 2); }
+
+func ease_in_expo(t) { if (t == 0) { return 0; } return pow(2, 10 * (t - 1)); }
+func ease_out_expo(t) { if (t == 1) { return 1; } return 1 - pow(2, -10 * t); }
+
+func ease_elastic(t) {
+    if (t == 0) { return 0; }
+    if (t == 1) { return 1; }
+    var p = 0.3;
+    var s = p / 4;
+    return pow(2, -10 * t) * sin((t - s) * (2 * 3.14159) / p) + 1;
+}
+
+func ease_bounce(t) {
+    if (t < 1 / 2.75) { return 7.5625 * t * t; }
+    if (t < 2 / 2.75) { var t2 = t - 1.5 / 2.75; return 7.5625 * t2 * t2 + 0.75; }
+    if (t < 2.5 / 2.75) { var t3 = t - 2.25 / 2.75; return 7.5625 * t3 * t3 + 0.9375; }
+    var t4 = t - 2.625 / 2.75;
+    return 7.5625 * t4 * t4 + 0.984375;
+}
+
+func ease_back(t) {
+    var s = 1.70158;
+    return t * t * ((s + 1) * t - s);
+}
+
+# ============================================================
+# TWEEN
+# ============================================================
+
+class Tween {
+    var target;
+    var property;
+    var start_value;
+    var end_value;
+    var duration;
+    var elapsed;
+    var easing;
+    var playing;
+    var looping;
+    var yoyo;
+    var direction;
+    var on_complete;
+    
+    func init(tgt, prop, start_val, end_val, dur) {
+        this.target = tgt;
+        this.property = prop;
+        this.start_value = start_val;
+        this.end_value = end_val;
+        this.duration = dur;
+        this.elapsed = 0;
+        this.easing = "linear";
+        this.playing = 0;
+        this.looping = 0;
+        this.yoyo = 0;
+        this.direction = 1;
+    }
+    
+    func play() {
+        this.playing = 1;
+        this.elapsed = 0;
+    }
+    
+    func pause() { this.playing = 0; }
+    func resume() { this.playing = 1; }
+    func stop() { this.playing = 0; this.elapsed = 0; }
+    
+    func set_easing(e) { this.easing = e; return this; }
+    func set_loop(l) { this.looping = l; return this; }
+    func set_yoyo(y) { this.yoyo = y; return this; }
+    
+    func update(dt) {
+        if (this.playing == 0) { return; }
+        
+        this.elapsed = this.elapsed + dt * this.direction;
+        var t = this.elapsed / this.duration;
+        if (t > 1) { t = 1; }
+        if (t < 0) { t = 0; }
+        
+        var eased = this.apply_easing(t);
+        var value = this.start_value + (this.end_value - this.start_value) * eased;
+        
+        # Apply value to target
+        # target[property] = value
+        
+        if (this.elapsed >= this.duration) {
+            if (this.yoyo == 1) {
+                this.direction = this.direction * -1;
+                this.elapsed = this.duration;
+            } else if (this.looping == 1) {
+                this.elapsed = 0;
+            } else {
+                this.playing = 0;
+                if (this.on_complete != 0) { this.on_complete(); }
+            }
+        }
+    }
+    
+    func apply_easing(t) {
+        if (this.easing == "linear") { return ease_linear(t); }
+        if (this.easing == "ease_in_quad") { return ease_in_quad(t); }
+        if (this.easing == "ease_out_quad") { return ease_out_quad(t); }
+        if (this.easing == "ease_elastic") { return ease_elastic(t); }
+        if (this.easing == "ease_bounce") { return ease_bounce(t); }
+        return t;
+    }
+}
+
+class TweenManager {
+    var tweens;
+    
+    func init() {
+        this.tweens = new List();
+        this.tweens.init();
+    }
+    
+    func create(target, property, start_val, end_val, duration) {
+        var tween = new Tween();
+        tween.init(target, property, start_val, end_val, duration);
+        this.tweens.append(tween);
+        return tween;
+    }
+    
+    func update(dt) {
+        var i = 0;
+        for (i = 0; i < this.tweens.length(); i = i + 1) {
+            this.tweens.get(i).update(dt);
+        }
+    }
+    
+    func remove_completed() {
+        var i = this.tweens.length() - 1;
+        while (i >= 0) {
+            if (this.tweens.get(i).playing == 0) {
+                this.tweens.remove(i);
+            }
+            i = i - 1;
+        }
+    }
+}
+
+# ============================================================
+# KEYFRAME ANIMATION
+# ============================================================
+
+class Keyframe {
+    var time;
+    var value;
+    var easing;
+    
+    func init(t, v) {
+        this.time = t;
+        this.value = v;
+        this.easing = "linear";
+    }
+}
+
+class AnimationTrack {
+    var property;
+    var keyframes;
+    
+    func init(prop) {
+        this.property = prop;
+        this.keyframes = new List();
+        this.keyframes.init();
+    }
+    
+    func add_keyframe(time, value) {
+        var kf = new Keyframe();
+        kf.init(time, value);
+        this.keyframes.append(kf);
+        this.sort_keyframes();
+    }
+    
+    func sort_keyframes() {
+        # Bubble sort by time
+        var n = this.keyframes.length();
+        var i = 0;
+        for (i = 0; i < n - 1; i = i + 1) {
+            var j = 0;
+            for (j = 0; j < n - i - 1; j = j + 1) {
+                var a = this.keyframes.get(j);
+                var b = this.keyframes.get(j + 1);
+                if (a.time > b.time) {
+                    this.keyframes.set(j, b);
+                    this.keyframes.set(j + 1, a);
+                }
+            }
+        }
+    }
+    
+    func sample(time) {
+        if (this.keyframes.length() == 0) { return 0; }
+        if (this.keyframes.length() == 1) { return this.keyframes.get(0).value; }
+        
+        var i = 0;
+        for (i = 0; i < this.keyframes.length() - 1; i = i + 1) {
+            var kf1 = this.keyframes.get(i);
+            var kf2 = this.keyframes.get(i + 1);
+            
+            if (time >= kf1.time && time <= kf2.time) {
+                var t = (time - kf1.time) / (kf2.time - kf1.time);
+                return kf1.value + (kf2.value - kf1.value) * t;
+            }
+        }
+        
+        return this.keyframes.get(this.keyframes.length() - 1).value;
+    }
+}
+
+class AnimationClip {
+    var name;
+    var tracks;
+    var duration;
+    var looping;
+    
+    func init(clip_name, dur) {
+        this.name = clip_name;
+        this.duration = dur;
+        this.looping = 0;
+        this.tracks = new List();
+        this.tracks.init();
+    }
+    
+    func add_track(property) {
+        var track = new AnimationTrack();
+        track.init(property);
+        this.tracks.append(track);
+        return track;
+    }
+    
+    func sample(time) {
+        var values = new Map();
+        values.init();
+        var i = 0;
+        for (i = 0; i < this.tracks.length(); i = i + 1) {
+            var track = this.tracks.get(i);
+            values.put(track.property, track.sample(time));
+        }
+        return values;
+    }
+}
+
+# ============================================================
+# SKELETAL ANIMATION
+# ============================================================
+
+class Bone {
+    var name;
+    var parent;
+    var children;
+    var local_position;
+    var local_rotation;
+    var local_scale;
+    var world_transform;
+    var length;
+    
+    func init(bone_name, len) {
+        this.name = bone_name;
+        this.length = len;
+        this.parent = 0;
+        this.children = new List();
+        this.children.init();
+        this.local_position = new List();
+        this.local_position.append(0);
+        this.local_position.append(0);
+        this.local_rotation = 0;
+        this.local_scale = 1;
+    }
+    
+    func add_child(child) {
+        child.parent = this;
+        this.children.append(child);
+    }
+    
+    func update_world_transform() {
+        # Calculate world transform from parent chain
+        if (this.parent != 0) {
+            # Combine with parent transform
+        }
+        
+        var i = 0;
+        for (i = 0; i < this.children.length(); i = i + 1) {
+            this.children.get(i).update_world_transform();
+        }
+    }
+}
+
+class Skeleton {
+    var root;
+    var bones;
+    var bone_map;
+    
+    func init() {
+        this.bones = new List();
+        this.bones.init();
+        this.bone_map = new Map();
+        this.bone_map.init();
+    }
+    
+    func add_bone(name, length, parent_name) {
+        var bone = new Bone();
+        bone.init(name, length);
+        
+        if (parent_name != 0 && this.bone_map.has(parent_name)) {
+            var parent = this.bone_map.get(parent_name);
+            parent.add_child(bone);
+        } else {
+            this.root = bone;
+        }
+        
+        this.bones.append(bone);
+        this.bone_map.put(name, bone);
+        return bone;
+    }
+    
+    func get_bone(name) {
+        return this.bone_map.get(name);
+    }
+    
+    func update() {
+        if (this.root != 0) {
+            this.root.update_world_transform();
+        }
+    }
+}
+
+class SkeletalAnimation {
+    var skeleton;
+    var clips;
+    var current_clip;
+    var current_time;
+    var playing;
+    var speed;
+    
+    func init(skel) {
+        this.skeleton = skel;
+        this.clips = new Map();
+        this.clips.init();
+        this.current_clip = 0;
+        this.current_time = 0;
+        this.playing = 0;
+        this.speed = 1;
+    }
+    
+    func add_clip(clip) {
+        this.clips.put(clip.name, clip);
+    }
+    
+    func play(clip_name) {
+        this.current_clip = this.clips.get(clip_name);
+        this.current_time = 0;
+        this.playing = 1;
+    }
+    
+    func update(dt) {
+        if (this.playing == 0 || this.current_clip == 0) { return; }
+        
+        this.current_time = this.current_time + dt * this.speed;
+        
+        if (this.current_time >= this.current_clip.duration) {
+            if (this.current_clip.looping == 1) {
+                this.current_time = 0;
+            } else {
+                this.playing = 0;
+                this.current_time = this.current_clip.duration;
+            }
+        }
+        
+        var values = this.current_clip.sample(this.current_time);
+        # Apply values to skeleton bones
+        
+        this.skeleton.update();
+    }
+}
+
+# ============================================================
+# ANIMATION STATE MACHINE
+# ============================================================
+
+class AnimationState {
+    var name;
+    var clip;
+    var transitions;
+    
+    func init(state_name, animation_clip) {
+        this.name = state_name;
+        this.clip = animation_clip;
+        this.transitions = new List();
+        this.transitions.init();
+    }
+    
+    func add_transition(target_state, condition) {
+        var trans = new Map();
+        trans.init();
+        trans.put("target", target_state);
+        trans.put("condition", condition);
+        this.transitions.append(trans);
+    }
+}
+
+class AnimationStateMachine {
+    var states;
+    var current_state;
+    var parameters;
+    var blend_time;
+    var blend_progress;
+    var blending_from;
+    
+    func init() {
+        this.states = new Map();
+        this.states.init();
+        this.parameters = new Map();
+        this.parameters.init();
+        this.blend_time = 0.2;
+        this.blend_progress = 0;
+    }
+    
+    func add_state(state) {
+        this.states.put(state.name, state);
+        if (this.current_state == 0) {
+            this.current_state = state;
+        }
+    }
+    
+    func set_parameter(name, value) {
+        this.parameters.put(name, value);
+    }
+    
+    func get_parameter(name) {
+        return this.parameters.get(name);
+    }
+    
+    func update(dt) {
+        if (this.current_state == 0) { return; }
+        
+        # Check transitions
+        var i = 0;
+        for (i = 0; i < this.current_state.transitions.length(); i = i + 1) {
+            var trans = this.current_state.transitions.get(i);
+            var condition = trans.get("condition");
+            if (condition(this.parameters)) {
+                var target_name = trans.get("target");
+                this.transition_to(target_name);
+                break;
+            }
+        }
+        
+        # Update blend
+        if (this.blend_progress < 1 && this.blending_from != 0) {
+            this.blend_progress = this.blend_progress + dt / this.blend_time;
+        }
+    }
+    
+    func transition_to(state_name) {
+        this.blending_from = this.current_state;
+        this.current_state = this.states.get(state_name);
+        this.blend_progress = 0;
+    }
+}
+
+# ============================================================
+# TIMELINE
+# ============================================================
+
+class TimelineEvent {
+    var time;
+    var callback;
+    var fired;
+    
+    func init(t, cb) {
+        this.time = t;
+        this.callback = cb;
+        this.fired = 0;
+    }
+}
+
+class Timeline {
+    var duration;
+    var current_time;
+    var playing;
+    var speed;
+    var looping;
+    var events;
+    var tracks;
+    
+    func init(dur) {
+        this.duration = dur;
+        this.current_time = 0;
+        this.playing = 0;
+        this.speed = 1;
+        this.looping = 0;
+        this.events = new List();
+        this.events.init();
+        this.tracks = new List();
+        this.tracks.init();
+    }
+    
+    func play() { this.playing = 1; }
+    func pause() { this.playing = 0; }
+    func stop() { this.playing = 0; this.current_time = 0; this.reset_events(); }
+    
+    func add_event(time, callback) {
+        var event = new TimelineEvent();
+        event.init(time, callback);
+        this.events.append(event);
+    }
+    
+    func add_track(track) {
+        this.tracks.append(track);
+    }
+    
+    func update(dt) {
+        if (this.playing == 0) { return; }
+        
+        var prev_time = this.current_time;
+        this.current_time = this.current_time + dt * this.speed;
+        
+        # Fire events
+        var i = 0;
+        for (i = 0; i < this.events.length(); i = i + 1) {
+            var event = this.events.get(i);
+            if (event.fired == 0 && prev_time < event.time && this.current_time >= event.time) {
+                event.callback();
+                event.fired = 1;
+            }
+        }
+        
+        if (this.current_time >= this.duration) {
+            if (this.looping == 1) {
+                this.current_time = 0;
+                this.reset_events();
+            } else {
+                this.playing = 0;
+            }
+        }
+    }
+    
+    func reset_events() {
+        var i = 0;
+        for (i = 0; i < this.events.length(); i = i + 1) {
+            this.events.get(i).fired = 0;
+        }
+    }
+    
+    func seek(time) {
+        this.current_time = time;
+    }
+}

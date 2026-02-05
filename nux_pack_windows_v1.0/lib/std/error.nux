@@ -1,0 +1,423 @@
+// Nux Error Handling System
+// Error types and utilities
+
+// ===== ERROR BASE CLASS =====
+
+class Error {
+    fn constructor(message) {
+        this.message = message;
+        this.name = "Error";
+        this.stack = error_captureStackTrace();
+        this.timestamp = date_now();
+    }
+    
+    fn toString() {
+        return this.name + ": " + this.message;
+    }
+    
+    fn printStackTrace() {
+        print(this.toString());
+        print("Stack trace:");
+        arr_forEach(this.stack, fn(frame) {
+            print("  at " + frame.function + " (" + frame.file + ":" + frame.line + ")");
+        });
+    }
+}
+
+// ===== BUILT-IN ERROR TYPES =====
+
+class TypeError extends Error {
+    fn constructor(message) {
+        super(message);
+        this.name = "TypeError";
+    }
+}
+
+class ReferenceError extends Error {
+    fn constructor(message) {
+        super(message);
+        this.name = "ReferenceError";
+    }
+}
+
+class RangeError extends Error {
+    fn constructor(message) {
+        super(message);
+        this.name = "RangeError";
+    }
+}
+
+class SyntaxError extends Error {
+    fn constructor(message) {
+        super(message);
+        this.name = "SyntaxError";
+    }
+}
+
+class RuntimeError extends Error {
+    fn constructor(message) {
+        super(message);
+        this.name = "RuntimeError";
+    }
+}
+
+class DivisionError extends Error {
+    fn constructor(message) {
+        super(message);
+        this.name = "DivisionError";
+    }
+}
+
+class FileError extends Error {
+    fn constructor(message, path) {
+        super(message);
+        this.name = "FileError";
+        this.path = path;
+    }
+    
+    fn toString() {
+        return this.name + ": " + this.message + " (path: " + this.path + ")";
+    }
+}
+
+class NetworkError extends Error {
+    fn constructor(message, url, statusCode) {
+        super(message);
+        this.name = "NetworkError";
+        this.url = url;
+        this.statusCode = statusCode;
+    }
+    
+    fn toString() {
+        return this.name + ": " + this.message + 
+               " (url: " + this.url + ", status: " + this.statusCode + ")";
+    }
+}
+
+class ValidationError extends Error {
+    fn constructor(message, field) {
+        super(message);
+        this.name = "ValidationError";
+        this.field = field;
+    }
+}
+
+class TimeoutError extends Error {
+    fn constructor(message, duration) {
+        super(message);
+        this.name = "TimeoutError";
+        this.duration = duration;
+    }
+}
+
+// ===== RESULT TYPE (FUNCTIONAL ERROR HANDLING) =====
+
+class Result {
+    fn constructor(ok, value, error) {
+        this.ok = ok;
+        this.value = value;
+        this.error = error;
+    }
+    
+    fn isOk() {
+        return this.ok;
+    }
+    
+    fn isError() {
+        return !this.ok;
+    }
+    
+    fn unwrap() {
+        if (this.ok) {
+            return this.value;
+        } else {
+            throw new Error("Called unwrap on error result: " + this.error);
+        }
+    }
+    
+    fn unwrapOr(defaultValue) {
+        if (this.ok) {
+            return this.value;
+        } else {
+            return defaultValue;
+        }
+    }
+    
+    fn map(fn) {
+        if (this.ok) {
+            return Result.ok(fn(this.value));
+        } else {
+            return this;
+        }
+    }
+    
+    fn flatMap(fn) {
+        if (this.ok) {
+            return fn(this.value);
+        } else {
+            return this;
+        }
+    }
+    
+    fn mapError(fn) {
+        if (this.ok) {
+            return this;
+        } else {
+            return Result.error(fn(this.error));
+        }
+    }
+}
+
+// Static factory methods
+Result.ok = fn(value) {
+    return new Result(true, value, null);
+};
+
+Result.error = fn(error) {
+    return new Result(false, null, error);
+};
+
+// ===== OPTION TYPE (NULL SAFETY) =====
+
+class Option {
+    fn constructor(hasValue, value) {
+        this.hasValue = hasValue;
+        this.value = value;
+    }
+    
+    fn isSome() {
+        return this.hasValue;
+    }
+    
+    fn isNone() {
+        return !this.hasValue;
+    }
+    
+    fn unwrap() {
+        if (this.hasValue) {
+            return this.value;
+        } else {
+            throw new Error("Called unwrap on None");
+        }
+    }
+    
+    fn unwrapOr(defaultValue) {
+        if (this.hasValue) {
+            return this.value;
+        } else {
+            return defaultValue;
+        }
+    }
+    
+    fn map(fn) {
+        if (this.hasValue) {
+            return Option.some(fn(this.value));
+        } else {
+            return this;
+        }
+    }
+    
+    fn flatMap(fn) {
+        if (this.hasValue) {
+            return fn(this.value);
+        } else {
+            return this;
+        }
+    }
+}
+
+// Static factory methods
+Option.some = fn(value) {
+    return new Option(true, value);
+};
+
+Option.none = fn() {
+    return new Option(false, null);
+};
+
+// ===== ERROR UTILITIES =====
+
+fn error_captureStackTrace() {
+    // Capture current stack trace
+    // This would be implemented by the VM
+    return [
+        {function: "main", file: "program.nux", line: 10},
+        {function: "foo", file: "program.nux", line: 5}
+    ];
+}
+
+fn error_assert(condition, message) {
+    if (!condition) {
+        throw new Error("Assertion failed: " + message);
+    }
+}
+
+fn error_assertType(value, expectedType, message) {
+    if (typeof(value) != expectedType) {
+        throw new TypeError(message || 
+            "Expected " + expectedType + " but got " + typeof(value));
+    }
+}
+
+fn error_assertNotNull(value, message) {
+    if (value == null) {
+        throw new ReferenceError(message || "Value is null");
+    }
+}
+
+fn error_assertRange(value, min, max, message) {
+    if (value < min || value > max) {
+        throw new RangeError(message || 
+            "Value " + value + " is out of range [" + min + ", " + max + "]");
+    }
+}
+
+// ===== TRY/CATCH HELPERS =====
+
+fn try_catch(tryFn, catchFn) {
+    try {
+        return tryFn();
+    } catch (e) {
+        return catchFn(e);
+    }
+}
+
+fn try_catch_finally(tryFn, catchFn, finallyFn) {
+    try {
+        return tryFn();
+    } catch (e) {
+        return catchFn(e);
+    } finally {
+        finallyFn();
+    }
+}
+
+fn try_or(tryFn, defaultValue) {
+    try {
+        return tryFn();
+    } catch (e) {
+        return defaultValue;
+    }
+}
+
+// ===== SAFE WRAPPERS =====
+
+fn safe_divide(a, b) {
+    if (b == 0) {
+        return Result.error("Division by zero");
+    }
+    return Result.ok(a / b);
+}
+
+fn safe_parse_int(str) {
+    try {
+        let value = str_toInt(str);
+        return Result.ok(value);
+    } catch (e) {
+        return Result.error("Invalid integer: " + str);
+    }
+}
+
+fn safe_parse_float(str) {
+    try {
+        let value = str_toFloat(str);
+        return Result.ok(value);
+    } catch (e) {
+        return Result.error("Invalid float: " + str);
+    }
+}
+
+fn safe_array_get(arr, index) {
+    if (index < 0 || index >= arr_length(arr)) {
+        return Option.none();
+    }
+    return Option.some(arr[index]);
+}
+
+fn safe_object_get(obj, key) {
+    if (obj[key] == null) {
+        return Option.none();
+    }
+    return Option.some(obj[key]);
+}
+
+// ===== RETRY LOGIC =====
+
+fn retry(fn, maxAttempts, delayMs) {
+    let attempts = 0;
+    
+    while (attempts < maxAttempts) {
+        try {
+            return fn();
+        } catch (e) {
+            attempts = attempts + 1;
+            
+            if (attempts >= maxAttempts) {
+                throw e;
+            }
+            
+            // Wait before retry
+            if (delayMs > 0) {
+                sleep(delayMs);
+            }
+        }
+    }
+}
+
+fn retry_with_backoff(fn, maxAttempts, initialDelayMs) {
+    let attempts = 0;
+    let delay = initialDelayMs;
+    
+    while (attempts < maxAttempts) {
+        try {
+            return fn();
+        } catch (e) {
+            attempts = attempts + 1;
+            
+            if (attempts >= maxAttempts) {
+                throw e;
+            }
+            
+            // Exponential backoff
+            sleep(delay);
+            delay = delay * 2;
+        }
+    }
+}
+
+// ===== ERROR AGGREGATION =====
+
+fn collect_errors(functions) {
+    let errors = [];
+    let results = [];
+    
+    arr_forEach(functions, fn(fn) {
+        try {
+            arr_push(results, fn());
+        } catch (e) {
+            arr_push(errors, e);
+        }
+    });
+    
+    return {
+        results: results,
+        errors: errors,
+        hasErrors: arr_length(errors) > 0
+    };
+}
+
+// ===== PANIC (UNRECOVERABLE ERRORS) =====
+
+fn panic(message) {
+    print("PANIC: " + message);
+    error_captureStackTrace();
+    exit(1);
+}
+
+fn unreachable(message) {
+    panic("Unreachable code executed: " + (message || ""));
+}
+
+fn todo(message) {
+    panic("TODO: " + (message || "not implemented"));
+}

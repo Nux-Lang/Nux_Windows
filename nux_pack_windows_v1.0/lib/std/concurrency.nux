@@ -1,0 +1,416 @@
+// Nux Standard Library - Advanced Concurrency
+// Actor model, Software Transactional Memory, and advanced synchronization
+
+// ===== ACTOR MODEL =====
+
+fn actor_create(behavior) {
+    // Create actor
+    return {
+        mailbox: [],
+        behavior: behavior,
+        state: {},
+        running: false
+    };
+}
+
+fn actor_send(actor, message) {
+    // Send message to actor
+    arr_push(actor.mailbox, message);
+}
+
+fn actor_receive(actor) {
+    // Receive and process message
+    if (arr_length(actor.mailbox) == 0) {
+        return null;
+    }
+    
+    let message = arr_shift(actor.mailbox);
+    actor.state = actor.behavior(actor.state, message);
+    
+    return message;
+}
+
+fn actor_spawn(behavior) {
+    // Spawn new actor
+    let actor = actor_create(behavior);
+    actor.running = true;
+    
+    // Start actor loop
+    // TODO: Run in separate thread
+    
+    return actor;
+}
+
+// ===== SOFTWARE TRANSACTIONAL MEMORY (STM) =====
+
+fn stm_create() {
+    // Create STM system
+    return {
+        globalVersion: 0,
+        vars: {}
+    };
+}
+
+fn stm_var(stm, name, initialValue) {
+    // Create transactional variable
+    stm.vars[name] = {
+        value: initialValue,
+        version: 0
+    };
+}
+
+fn stm_transaction(stm, fn) {
+    // Execute transaction
+    let readSet = {};
+    let writeSet = {};
+    let success = false;
+    
+    while (!success) {
+        // Read phase
+        let result = fn(readSet, writeSet);
+        
+        // Validate phase
+        let valid = true;
+        let keys = obj_keys(readSet);
+        
+        let i = 0;
+        while (i < arr_length(keys)) {
+            let key = keys[i];
+            if (stm.vars[key].version != readSet[key].version) {
+                valid = false;
+                break;
+            }
+            i = i + 1;
+        }
+        
+        // Commit phase
+        if (valid) {
+            stm.globalVersion = stm.globalVersion + 1;
+            
+            let writeKeys = obj_keys(writeSet);
+            let j = 0;
+            while (j < arr_length(writeKeys)) {
+                let key = writeKeys[j];
+                stm.vars[key].value = writeSet[key];
+                stm.vars[key].version = stm.globalVersion;
+                j = j + 1;
+            }
+            
+            success = true;
+            return result;
+        }
+        
+        // Retry on conflict
+        readSet = {};
+        writeSet = {};
+    }
+}
+
+// ===== CHANNEL (CSP-style) =====
+
+fn channel_create(bufferSize) {
+    // Create buffered channel
+    return {
+        buffer: [],
+        bufferSize: bufferSize,
+        senders: [],
+        receivers: []
+    };
+}
+
+fn channel_send(channel, value) {
+    // Send value to channel
+    if (arr_length(channel.buffer) < channel.bufferSize) {
+        arr_push(channel.buffer, value);
+        return true;
+    }
+    
+    // Block if buffer full
+    arr_push(channel.senders, {value: value, waiting: true});
+    return false;
+}
+
+fn channel_receive(channel) {
+    // Receive value from channel
+    if (arr_length(channel.buffer) > 0) {
+        return arr_shift(channel.buffer);
+    }
+    
+    // Block if buffer empty
+    arr_push(channel.receivers, {waiting: true});
+    return null;
+}
+
+fn channel_select(channels) {
+    // Select from multiple channels
+    let i = 0;
+    while (i < arr_length(channels)) {
+        if (arr_length(channels[i].buffer) > 0) {
+            return {index: i, value: channel_receive(channels[i])};
+        }
+        i = i + 1;
+    }
+    
+    return null;
+}
+
+// ===== FUTURE/PROMISE (Advanced) =====
+
+fn future_create() {
+    // Create future
+    return {
+        value: null,
+        completed: false,
+        callbacks: []
+    };
+}
+
+fn future_complete(future, value) {
+    // Complete future with value
+    future.value = value;
+    future.completed = true;
+    
+    // Execute callbacks
+    arr_forEach(future.callbacks, fn(callback) {
+        callback(value);
+    });
+}
+
+fn future_then(future, callback) {
+    // Add callback
+    if (future.completed) {
+        callback(future.value);
+    } else {
+        arr_push(future.callbacks, callback);
+    }
+}
+
+fn future_join(futures) {
+    // Wait for all futures
+    let results = [];
+    let completed = 0;
+    let total = arr_length(futures);
+    
+    arr_forEach(futures, fn(future) {
+        future_then(future, fn(value) {
+            arr_push(results, value);
+            completed = completed + 1;
+        });
+    });
+    
+    // Wait for all
+    while (completed < total) {
+        sys_sleep(1);
+    }
+    
+    return results;
+}
+
+// ===== READ-WRITE LOCK =====
+
+fn rwlock_create() {
+    // Create read-write lock
+    return {
+        readers: 0,
+        writer: false,
+        waitingReaders: 0,
+        waitingWriters: 0
+    };
+}
+
+fn rwlock_readLock(lock) {
+    // Acquire read lock
+    while (lock.writer || lock.waitingWriters > 0) {
+        lock.waitingReaders = lock.waitingReaders + 1;
+        // Wait
+        lock.waitingReaders = lock.waitingReaders - 1;
+    }
+    
+    lock.readers = lock.readers + 1;
+}
+
+fn rwlock_readUnlock(lock) {
+    // Release read lock
+    lock.readers = lock.readers - 1;
+}
+
+fn rwlock_writeLock(lock) {
+    // Acquire write lock
+    lock.waitingWriters = lock.waitingWriters + 1;
+    
+    while (lock.readers > 0 || lock.writer) {
+        // Wait
+    }
+    
+    lock.waitingWriters = lock.waitingWriters - 1;
+    lock.writer = true;
+}
+
+fn rwlock_writeUnlock(lock) {
+    // Release write lock
+    lock.writer = false;
+}
+
+// ===== SEMAPHORE =====
+
+fn semaphore_create(count) {
+    // Create counting semaphore
+    return {
+        count: count,
+        waiting: []
+    };
+}
+
+fn semaphore_wait(sem) {
+    // Wait (P operation)
+    while (sem.count <= 0) {
+        arr_push(sem.waiting, true);
+        // Block
+        arr_pop(sem.waiting);
+    }
+    
+    sem.count = sem.count - 1;
+}
+
+fn semaphore_signal(sem) {
+    // Signal (V operation)
+    sem.count = sem.count + 1;
+    
+    // Wake up waiting thread
+    if (arr_length(sem.waiting) > 0) {
+        arr_pop(sem.waiting);
+    }
+}
+
+// ===== BARRIER =====
+
+fn barrier_create(numThreads) {
+    // Create barrier
+    return {
+        numThreads: numThreads,
+        count: 0,
+        generation: 0
+    };
+}
+
+fn barrier_wait(barrier) {
+    // Wait at barrier
+    let gen = barrier.generation;
+    barrier.count = barrier.count + 1;
+    
+    if (barrier.count == barrier.numThreads) {
+        // Last thread - release all
+        barrier.count = 0;
+        barrier.generation = barrier.generation + 1;
+        return true;
+    }
+    
+    // Wait for generation to change
+    while (gen == barrier.generation) {
+        sys_sleep(1);
+    }
+    
+    return false;
+}
+
+// ===== THREAD POOL =====
+
+fn threadpool_create(numThreads) {
+    // Create thread pool
+    return {
+        threads: arr_fill(numThreads, null),
+        queue: [],
+        running: true
+    };
+}
+
+fn threadpool_submit(pool, task) {
+    // Submit task to pool
+    arr_push(pool.queue, task);
+}
+
+fn threadpool_worker(pool) {
+    // Worker thread function
+    while (pool.running) {
+        if (arr_length(pool.queue) > 0) {
+            let task = arr_shift(pool.queue);
+            task();
+        } else {
+            sys_sleep(1);
+        }
+    }
+}
+
+fn threadpool_shutdown(pool) {
+    // Shutdown thread pool
+    pool.running = false;
+}
+
+// ===== ATOMIC OPERATIONS =====
+
+fn atomic_compareAndSwap(ptr, expected, desired) {
+    // Compare-and-swap
+    // TODO: Implement with VM intrinsic
+    if (ptr.value == expected) {
+        ptr.value = desired;
+        return true;
+    }
+    return false;
+}
+
+fn atomic_fetchAndAdd(ptr, value) {
+    // Fetch-and-add
+    let old = ptr.value;
+    ptr.value = ptr.value + value;
+    return old;
+}
+
+fn atomic_load(ptr) {
+    // Atomic load
+    return ptr.value;
+}
+
+fn atomic_store(ptr, value) {
+    // Atomic store
+    ptr.value = value;
+}
+
+// ===== LOCK-FREE STACK =====
+
+fn lfstack_create() {
+    // Create lock-free stack
+    return {
+        head: null
+    };
+}
+
+fn lfstack_push(stack, value) {
+    // Push value (lock-free)
+    let newNode = {value: value, next: null};
+    
+    while (true) {
+        let oldHead = stack.head;
+        newNode.next = oldHead;
+        
+        if (atomic_compareAndSwap(stack, oldHead, newNode)) {
+            break;
+        }
+    }
+}
+
+fn lfstack_pop(stack) {
+    // Pop value (lock-free)
+    while (true) {
+        let oldHead = stack.head;
+        
+        if (oldHead == null) {
+            return null;
+        }
+        
+        let newHead = oldHead.next;
+        
+        if (atomic_compareAndSwap(stack, oldHead, newHead)) {
+            return oldHead.value;
+        }
+    }
+}

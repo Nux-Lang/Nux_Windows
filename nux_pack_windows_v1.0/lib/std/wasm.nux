@@ -1,0 +1,191 @@
+# Nux WebAssembly Library
+# WASM module generation and execution
+
+import "std.collections";
+
+class WASMModule {
+    var functions;
+    var memory;
+    var exports;
+    var imports;
+    
+    func init() {
+        this.functions = new List();
+        this.functions.init();
+        
+        this.exports = new Map();
+        this.exports.init();
+        
+        this.imports = new List();
+        this.imports.init();
+    }
+    
+    func add_function(name, params, results, locals, code) {
+        var func = new Map();
+        func.init();
+        func.put("name", name);
+        func.put("params", params);
+        func.put("results", results);
+        func.put("locals", locals);
+        func.put("code", code);
+        
+        this.functions.append(func);
+    }
+    
+    func export_function(name, func_index) {
+        this.exports.put(name, func_index);
+    }
+    
+    func encode() {
+        var buffer = mem_alloc_aligned(4096, 8);
+        var pos = 0;
+        
+        # Magic number
+        mem_write32(buffer + pos, 0x6D736100);
+        pos = pos + 4;
+        
+        # Version
+        mem_write32(buffer + pos, 1);
+        pos = pos + 4;
+        
+        # Type section
+        pos = this.encode_type_section(buffer, pos);
+        
+        # Function section
+        pos = this.encode_function_section(buffer, pos);
+        
+        # Export section
+        pos = this.encode_export_section(buffer, pos);
+        
+        # Code section
+        pos = this.encode_code_section(buffer, pos);
+        
+        return buffer;
+    }
+    
+    func encode_type_section(buffer, pos) {
+        mem_write8(buffer + pos, 1);
+        pos = pos + 1;
+        
+        # Section size (placeholder)
+        var size_pos = pos;
+        pos = pos + 4;
+        
+        # Number of types
+        var num_types = this.functions.length();
+        pos = this.encode_uleb128(buffer, pos, num_types);
+        
+        var i = 0;
+        for (i = 0; i < num_types; i = i + 1) {
+            var func = this.functions.get(i);
+            
+            mem_write8(buffer + pos, 0x60);
+            pos = pos + 1;
+            
+            var params = func.get("params");
+            pos = this.encode_uleb128(buffer, pos, params.length());
+            
+            var results = func.get("results");
+            pos = this.encode_uleb128(buffer, pos, results.length());
+        }
+        
+        # Write section size
+        var section_size = pos - size_pos - 4;
+        mem_write32(buffer + size_pos, section_size);
+        
+        return pos;
+    }
+    
+    func encode_function_section(buffer, pos) {
+        # ... (implementation)
+        return pos;
+    }
+    
+    func encode_export_section(buffer, pos) {
+        # ... (implementation)
+        return pos;
+    }
+    
+    func encode_code_section(buffer, pos) {
+        # ... (implementation)
+        return pos;
+    }
+    
+    func encode_uleb128(buffer, pos, value) {
+        for (;;) {
+            var byte = value & 0x7F;
+            value = value >> 7;
+            
+            if (value != 0) {
+                byte = byte | 0x80;
+            }
+            
+            mem_write8(buffer + pos, byte);
+            pos = pos + 1;
+            
+            if (value == 0) {
+                break;
+            }
+        }
+        
+        return pos;
+    }
+}
+
+class WASMRuntime {
+    var module;
+    var stack;
+    var memory;
+    var globals;
+    
+    func init(wasm_module) {
+        this.module = wasm_module;
+        
+        this.stack = new List();
+        this.stack.init();
+        
+        this.memory = mem_alloc_aligned(65536, 4096);
+        
+        this.globals = new List();
+        this.globals.init();
+    }
+    
+    func call_function(func_index, args) {
+        var func = this.module.functions.get(func_index);
+        var code = func.get("code");
+        
+        # Push arguments
+        var i = 0;
+        for (i = 0; i < args.length(); i = i + 1) {
+            this.stack.append(args.get(i));
+        }
+        
+        # Execute instructions
+        this.execute(code);
+        
+        # Pop result
+        return this.stack.get(this.stack.length() - 1);
+    }
+    
+    func execute(code) {
+        var pc = 0;
+        
+        for (;;) {
+            if (pc >= code.length()) {
+                break;
+            }
+            
+            var opcode = code.get(pc);
+            pc = pc + 1;
+            
+            if (opcode == 0x6A) {
+                var b = this.stack.get(this.stack.length() - 1);
+                this.stack.remove(this.stack.length() - 1);
+                var a = this.stack.get(this.stack.length() - 1);
+                this.stack.remove(this.stack.length() - 1);
+                
+                this.stack.append(a + b);
+            }
+        }
+    }
+}

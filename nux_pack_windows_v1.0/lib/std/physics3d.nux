@@ -1,0 +1,502 @@
+# Nux 3D Physics Library
+# 3D physics simulation
+
+import "std.math";
+
+# ============================================================
+# 3D VECTOR
+# ============================================================
+
+class Vec3 {
+    var x;
+    var y;
+    var z;
+    
+    func init(px, py, pz) {
+        this.x = px;
+        this.y = py;
+        this.z = pz;
+    }
+    
+    func add(v) { var r = new Vec3(); r.init(this.x + v.x, this.y + v.y, this.z + v.z); return r; }
+    func sub(v) { var r = new Vec3(); r.init(this.x - v.x, this.y - v.y, this.z - v.z); return r; }
+    func scale(s) { var r = new Vec3(); r.init(this.x * s, this.y * s, this.z * s); return r; }
+    func dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
+    
+    func cross(v) {
+        var r = new Vec3();
+        r.init(this.y * v.z - this.z * v.y,
+               this.z * v.x - this.x * v.z,
+               this.x * v.y - this.y * v.x);
+        return r;
+    }
+    
+    func length() { return sqrt(this.x * this.x + this.y * this.y + this.z * this.z); }
+    
+    func normalize() {
+        var len = this.length();
+        if (len > 0) { return this.scale(1 / len); }
+        return this;
+    }
+}
+
+func vec3(x, y, z) { var v = new Vec3(); v.init(x, y, z); return v; }
+
+# ============================================================
+# QUATERNION
+# ============================================================
+
+class Quaternion {
+    var w;
+    var x;
+    var y;
+    var z;
+    
+    func init(pw, px, py, pz) {
+        this.w = pw;
+        this.x = px;
+        this.y = py;
+        this.z = pz;
+    }
+    
+    func identity() {
+        this.w = 1;
+        this.x = 0;
+        this.y = 0;
+        this.z = 0;
+    }
+    
+    func from_axis_angle(axis, angle) {
+        var half = angle / 2;
+        var s = sin(half);
+        this.w = cos(half);
+        this.x = axis.x * s;
+        this.y = axis.y * s;
+        this.z = axis.z * s;
+    }
+    
+    func mul(q) {
+        var r = new Quaternion();
+        r.init(
+            this.w * q.w - this.x * q.x - this.y * q.y - this.z * q.z,
+            this.w * q.x + this.x * q.w + this.y * q.z - this.z * q.y,
+            this.w * q.y - this.x * q.z + this.y * q.w + this.z * q.x,
+            this.w * q.z + this.x * q.y - this.y * q.x + this.z * q.w
+        );
+        return r;
+    }
+    
+    func conjugate() {
+        var r = new Quaternion();
+        r.init(this.w, -this.x, -this.y, -this.z);
+        return r;
+    }
+    
+    func normalize() {
+        var len = sqrt(this.w*this.w + this.x*this.x + this.y*this.y + this.z*this.z);
+        this.w = this.w / len;
+        this.x = this.x / len;
+        this.y = this.y / len;
+        this.z = this.z / len;
+    }
+    
+    func rotate_vector(v) {
+        var qv = new Quaternion();
+        qv.init(0, v.x, v.y, v.z);
+        var result = this.mul(qv).mul(this.conjugate());
+        return vec3(result.x, result.y, result.z);
+    }
+}
+
+# ============================================================
+# 3D SHAPES
+# ============================================================
+
+class SphereShape3D {
+    var radius;
+    
+    func init(r) { this.radius = r; }
+    
+    func compute_inertia(mass) {
+        var i = 0.4 * mass * this.radius * this.radius;
+        return vec3(i, i, i);
+    }
+    
+    func support(direction) {
+        return direction.normalize().scale(this.radius);
+    }
+}
+
+class BoxShape3D {
+    var half_extents;
+    
+    func init(hx, hy, hz) {
+        this.half_extents = vec3(hx, hy, hz);
+    }
+    
+    func compute_inertia(mass) {
+        var x2 = this.half_extents.x * this.half_extents.x * 4;
+        var y2 = this.half_extents.y * this.half_extents.y * 4;
+        var z2 = this.half_extents.z * this.half_extents.z * 4;
+        return vec3(
+            mass * (y2 + z2) / 12,
+            mass * (x2 + z2) / 12,
+            mass * (x2 + y2) / 12
+        );
+    }
+    
+    func support(direction) {
+        return vec3(
+            direction.x >= 0 ? this.half_extents.x : -this.half_extents.x,
+            direction.y >= 0 ? this.half_extents.y : -this.half_extents.y,
+            direction.z >= 0 ? this.half_extents.z : -this.half_extents.z
+        );
+    }
+    
+    func get_vertices() {
+        var verts = new List();
+        verts.init();
+        var hx = this.half_extents.x;
+        var hy = this.half_extents.y;
+        var hz = this.half_extents.z;
+        
+        verts.append(vec3(-hx, -hy, -hz));
+        verts.append(vec3(hx, -hy, -hz));
+        verts.append(vec3(hx, hy, -hz));
+        verts.append(vec3(-hx, hy, -hz));
+        verts.append(vec3(-hx, -hy, hz));
+        verts.append(vec3(hx, -hy, hz));
+        verts.append(vec3(hx, hy, hz));
+        verts.append(vec3(-hx, hy, hz));
+        
+        return verts;
+    }
+}
+
+class CapsuleShape3D {
+    var radius;
+    var height;
+    
+    func init(r, h) {
+        this.radius = r;
+        this.height = h;
+    }
+    
+    func compute_inertia(mass) {
+        var r2 = this.radius * this.radius;
+        var h = this.height;
+        var i_y = mass * r2 / 2;
+        var i_xz = mass * (3 * r2 + h * h) / 12;
+        return vec3(i_xz, i_y, i_xz);
+    }
+}
+
+# ============================================================
+# 3D RIGID BODY
+# ============================================================
+
+var BODY3D_STATIC = 0;
+var BODY3D_DYNAMIC = 1;
+var BODY3D_KINEMATIC = 2;
+
+class RigidBody3D {
+    var position;
+    var orientation;
+    var velocity;
+    var angular_velocity;
+    var force;
+    var torque;
+    var mass;
+    var inv_mass;
+    var inertia;
+    var inv_inertia;
+    var shape;
+    var body_type;
+    var friction;
+    var restitution;
+    var linear_damping;
+    var angular_damping;
+    
+    func init(x, y, z, btype) {
+        this.position = vec3(x, y, z);
+        this.orientation = new Quaternion();
+        this.orientation.identity();
+        this.velocity = vec3(0, 0, 0);
+        this.angular_velocity = vec3(0, 0, 0);
+        this.force = vec3(0, 0, 0);
+        this.torque = vec3(0, 0, 0);
+        this.body_type = btype;
+        this.friction = 0.5;
+        this.restitution = 0.3;
+        this.linear_damping = 0.01;
+        this.angular_damping = 0.01;
+        
+        if (btype == BODY3D_STATIC) {
+            this.mass = 0;
+            this.inv_mass = 0;
+        }
+    }
+    
+    func set_shape(s, density) {
+        this.shape = s;
+        if (this.body_type == BODY3D_DYNAMIC) {
+            this.mass = density * 1;  # Simplified
+            this.inv_mass = 1 / this.mass;
+            this.inertia = s.compute_inertia(this.mass);
+            this.inv_inertia = vec3(1/this.inertia.x, 1/this.inertia.y, 1/this.inertia.z);
+        }
+    }
+    
+    func apply_force(f) {
+        this.force = this.force.add(f);
+    }
+    
+    func apply_force_at_point(f, point) {
+        this.force = this.force.add(f);
+        var r = point.sub(this.position);
+        this.torque = this.torque.add(r.cross(f));
+    }
+    
+    func apply_impulse(impulse) {
+        this.velocity = this.velocity.add(impulse.scale(this.inv_mass));
+    }
+    
+    func apply_angular_impulse(impulse) {
+        this.angular_velocity = this.angular_velocity.add(vec3(
+            impulse.x * this.inv_inertia.x,
+            impulse.y * this.inv_inertia.y,
+            impulse.z * this.inv_inertia.z
+        ));
+    }
+    
+    func integrate(dt, gravity) {
+        if (this.body_type != BODY3D_DYNAMIC) { return; }
+        
+        # Apply gravity
+        this.velocity = this.velocity.add(gravity.scale(dt));
+        
+        # Apply forces
+        this.velocity = this.velocity.add(this.force.scale(this.inv_mass * dt));
+        
+        # Apply torque
+        this.angular_velocity = this.angular_velocity.add(vec3(
+            this.torque.x * this.inv_inertia.x * dt,
+            this.torque.y * this.inv_inertia.y * dt,
+            this.torque.z * this.inv_inertia.z * dt
+        ));
+        
+        # Damping
+        this.velocity = this.velocity.scale(1 - this.linear_damping);
+        this.angular_velocity = this.angular_velocity.scale(1 - this.angular_damping);
+        
+        # Integrate position
+        this.position = this.position.add(this.velocity.scale(dt));
+        
+        # Integrate orientation
+        var w = this.angular_velocity;
+        var q = new Quaternion();
+        q.init(0, w.x * dt * 0.5, w.y * dt * 0.5, w.z * dt * 0.5);
+        this.orientation = this.orientation.mul(q);
+        this.orientation.normalize();
+        
+        # Clear forces
+        this.force = vec3(0, 0, 0);
+        this.torque = vec3(0, 0, 0);
+    }
+}
+
+# ============================================================
+# GJK COLLISION DETECTION
+# ============================================================
+
+func gjk_support(shape_a, shape_b, pos_a, pos_b, direction) {
+    var support_a = shape_a.support(direction);
+    var support_b = shape_b.support(direction.scale(-1));
+    
+    support_a = support_a.add(pos_a);
+    support_b = support_b.add(pos_b);
+    
+    return support_a.sub(support_b);
+}
+
+class GJK {
+    var simplex;
+    var direction;
+    
+    func init() {
+        this.simplex = new List();
+        this.simplex.init();
+    }
+    
+    func check_collision(a, b) {
+        this.simplex.clear();
+        this.direction = b.position.sub(a.position);
+        if (this.direction.length() < 0.0001) {
+            this.direction = vec3(1, 0, 0);
+        }
+        
+        var support = gjk_support(a.shape, b.shape, a.position, b.position, this.direction);
+        this.simplex.append(support);
+        this.direction = support.scale(-1);
+        
+        var iterations = 0;
+        while (iterations < 32) {
+            support = gjk_support(a.shape, b.shape, a.position, b.position, this.direction);
+            
+            if (support.dot(this.direction) < 0) {
+                return 0;
+            }
+            
+            this.simplex.append(support);
+            
+            if (this.do_simplex()) {
+                return 1;
+            }
+            
+            iterations = iterations + 1;
+        }
+        
+        return 0;
+    }
+    
+    func do_simplex() {
+        var n = this.simplex.length();
+        
+        if (n == 2) {
+            return this.line_case();
+        } else if (n == 3) {
+            return this.triangle_case();
+        } else if (n == 4) {
+            return this.tetrahedron_case();
+        }
+        
+        return 0;
+    }
+    
+    func line_case() {
+        var b = this.simplex.get(0);
+        var a = this.simplex.get(1);
+        var ab = b.sub(a);
+        var ao = a.scale(-1);
+        
+        if (ab.dot(ao) > 0) {
+            this.direction = ab.cross(ao).cross(ab);
+        } else {
+            this.simplex.clear();
+            this.simplex.append(a);
+            this.direction = ao;
+        }
+        
+        return 0;
+    }
+    
+    func triangle_case() {
+        var a = this.simplex.get(2);
+        var b = this.simplex.get(1);
+        var c = this.simplex.get(0);
+        
+        var ab = b.sub(a);
+        var ac = c.sub(a);
+        var ao = a.scale(-1);
+        var abc = ab.cross(ac);
+        
+        if (abc.cross(ac).dot(ao) > 0) {
+            if (ac.dot(ao) > 0) {
+                this.simplex.clear();
+                this.simplex.append(c);
+                this.simplex.append(a);
+                this.direction = ac.cross(ao).cross(ac);
+            } else {
+                return this.line_case_ab(a, b, ao);
+            }
+        } else {
+            if (ab.cross(abc).dot(ao) > 0) {
+                return this.line_case_ab(a, b, ao);
+            } else {
+                if (abc.dot(ao) > 0) {
+                    this.direction = abc;
+                } else {
+                    this.simplex.clear();
+                    this.simplex.append(b);
+                    this.simplex.append(c);
+                    this.simplex.append(a);
+                    this.direction = abc.scale(-1);
+                }
+            }
+        }
+        
+        return 0;
+    }
+    
+    func line_case_ab(a, b, ao) {
+        var ab = b.sub(a);
+        this.simplex.clear();
+        this.simplex.append(b);
+        this.simplex.append(a);
+        this.direction = ab.cross(ao).cross(ab);
+        return 0;
+    }
+    
+    func tetrahedron_case() {
+        return 1;  # Origin is inside tetrahedron
+    }
+}
+
+# ============================================================
+# 3D PHYSICS WORLD
+# ============================================================
+
+class PhysicsWorld3D {
+    var bodies;
+    var gravity;
+    var gjk;
+    
+    func init() {
+        this.bodies = new List();
+        this.bodies.init();
+        this.gravity = vec3(0, -9.81, 0);
+        this.gjk = new GJK();
+        this.gjk.init();
+    }
+    
+    func add_body(body) {
+        this.bodies.append(body);
+    }
+    
+    func step(dt) {
+        # Integrate
+        var i = 0;
+        for (i = 0; i < this.bodies.length(); i = i + 1) {
+            this.bodies.get(i).integrate(dt, this.gravity);
+        }
+        
+        # Collision detection
+        for (i = 0; i < this.bodies.length(); i = i + 1) {
+            var j = i + 1;
+            for (j = i + 1; j < this.bodies.length(); j = j + 1) {
+                var a = this.bodies.get(i);
+                var b = this.bodies.get(j);
+                
+                if (this.gjk.check_collision(a, b) == 1) {
+                    this.resolve_collision(a, b);
+                }
+            }
+        }
+    }
+    
+    func resolve_collision(a, b) {
+        var normal = b.position.sub(a.position).normalize();
+        var rel_vel = b.velocity.sub(a.velocity);
+        var vel_along_normal = rel_vel.dot(normal);
+        
+        if (vel_along_normal > 0) { return; }
+        
+        var e = (a.restitution + b.restitution) / 2;
+        var j = -(1 + e) * vel_along_normal;
+        j = j / (a.inv_mass + b.inv_mass);
+        
+        var impulse = normal.scale(j);
+        a.apply_impulse(impulse.scale(-1));
+        b.apply_impulse(impulse);
+    }
+}

@@ -1,0 +1,392 @@
+// Nux Standard Library - Category Theory
+// Functors, Monads, Applicatives, and Category Theory abstractions
+
+// ===== FUNCTOR =====
+
+fn functor_map(functor, fn) {
+    // Map function over functor
+    return functor.map(fn);
+}
+
+// Array Functor
+fn array_functor(arr) {
+    return {
+        value: arr,
+        map: fn(f) {
+            return array_functor(arr_map(this.value, f));
+        }
+    };
+}
+
+// Option Functor
+fn option_functor(value) {
+    return {
+        value: value,
+        isSome: value != null,
+        map: fn(f) {
+            if (this.isSome) {
+                return option_functor(f(this.value));
+            }
+            return option_functor(null);
+        }
+    };
+}
+
+// ===== APPLICATIVE =====
+
+fn applicative_pure(value) {
+    // Lift value into applicative
+    return option_functor(value);
+}
+
+fn applicative_ap(af, av) {
+    // Apply wrapped function to wrapped value
+    if (af.isSome && av.isSome) {
+        return option_functor(af.value(av.value));
+    }
+    return option_functor(null);
+}
+
+fn applicative_liftA2(f, a, b) {
+    // Lift binary function
+    return applicative_ap(
+        functor_map(a, fn(x) {
+            return fn(y) { return f(x, y); };
+        }),
+        b
+    );
+}
+
+// ===== MONAD =====
+
+fn monad_return(value) {
+    // Return/pure for monad
+    return option_functor(value);
+}
+
+fn monad_bind(m, f) {
+    // Monadic bind (>>=)
+    if (m.isSome) {
+        return f(m.value);
+    }
+    return option_functor(null);
+}
+
+fn monad_join(mm) {
+    // Flatten nested monad
+    return monad_bind(mm, fn(m) { return m; });
+}
+
+fn monad_sequence(monads) {
+    // Sequence list of monads
+    if (arr_length(monads) == 0) {
+        return monad_return([]);
+    }
+    
+    let head = monads[0];
+    let tail = arr_slice(monads, 1, arr_length(monads));
+    
+    return monad_bind(head, fn(x) {
+        return monad_bind(monad_sequence(tail), fn(xs) {
+            return monad_return(arr_concat([x], xs));
+        });
+    });
+}
+
+// ===== MONOID =====
+
+fn monoid_create(empty, append) {
+    // Create monoid
+    return {
+        empty: empty,
+        append: append
+    };
+}
+
+fn monoid_concat(monoid, values) {
+    // Concatenate using monoid
+    return arr_reduce(values, monoid.append, monoid.empty);
+}
+
+// String Monoid
+fn monoid_string() {
+    return monoid_create("", fn(a, b) { return a + b; });
+}
+
+// Array Monoid
+fn monoid_array() {
+    return monoid_create([], fn(a, b) { return arr_concat(a, b); });
+}
+
+// Sum Monoid
+fn monoid_sum() {
+    return monoid_create(0, fn(a, b) { return a + b; });
+}
+
+// Product Monoid
+fn monoid_product() {
+    return monoid_create(1, fn(a, b) { return a * b; });
+}
+
+// ===== FOLDABLE =====
+
+fn foldable_foldr(foldable, f, init) {
+    // Right fold
+    return arr_reduceRight(foldable, f, init);
+}
+
+fn foldable_foldl(foldable, f, init) {
+    // Left fold
+    return arr_reduce(foldable, f, init);
+}
+
+fn foldable_foldMap(foldable, monoid, f) {
+    // Fold with monoid
+    let mapped = arr_map(foldable, f);
+    return monoid_concat(monoid, mapped);
+}
+
+// ===== TRAVERSABLE =====
+
+fn traversable_traverse(traversable, applicative, f) {
+    // Traverse with applicative
+    if (arr_length(traversable) == 0) {
+        return applicative_pure([]);
+    }
+    
+    let head = traversable[0];
+    let tail = arr_slice(traversable, 1, arr_length(traversable));
+    
+    return applicative_liftA2(
+        fn(x, xs) { return arr_concat([x], xs); },
+        f(head),
+        traversable_traverse(tail, applicative, f)
+    );
+}
+
+// ===== FREE MONAD =====
+
+fn free_pure(value) {
+    // Pure for free monad
+    return {type: "pure", value: value};
+}
+
+fn free_bind(fm, f) {
+    // Bind for free monad
+    if (fm.type == "pure") {
+        return f(fm.value);
+    } else if (fm.type == "free") {
+        return {
+            type: "free",
+            functor: functor_map(fm.functor, fn(next) {
+                return free_bind(next, f);
+            })
+        };
+    }
+}
+
+fn free_liftF(functor) {
+    // Lift functor into free monad
+    return {
+        type: "free",
+        functor: functor_map(functor, free_pure)
+    };
+}
+
+// ===== NATURAL TRANSFORMATION =====
+
+fn natTrans_create(transform) {
+    // Create natural transformation
+    return {
+        transform: transform
+    };
+}
+
+fn natTrans_apply(nt, functor) {
+    // Apply natural transformation
+    return nt.transform(functor);
+}
+
+// Example: List to Option
+fn natTrans_listToOption() {
+    return natTrans_create(fn(list) {
+        if (arr_length(list) > 0) {
+            return option_functor(list[0]);
+        }
+        return option_functor(null);
+    });
+}
+
+// ===== COMONAD =====
+
+fn comonad_extract(cw) {
+    // Extract value from comonad
+    return cw.extract();
+}
+
+fn comonad_extend(cw, f) {
+    // Extend comonad
+    return cw.extend(f);
+}
+
+// ===== LENS =====
+
+fn lens_create(getter, setter) {
+    // Create lens
+    return {
+        get: getter,
+        set: setter
+    };
+}
+
+fn lens_view(lens, obj) {
+    // View through lens
+    return lens.get(obj);
+}
+
+fn lens_set(lens, value, obj) {
+    // Set through lens
+    return lens.set(value, obj);
+}
+
+fn lens_over(lens, f, obj) {
+    // Modify through lens
+    let oldValue = lens.get(obj);
+    let newValue = f(oldValue);
+    return lens.set(newValue, obj);
+}
+
+fn lens_compose(lens1, lens2) {
+    // Compose lenses
+    return lens_create(
+        fn(obj) { return lens2.get(lens1.get(obj)); },
+        fn(value, obj) {
+            let inner = lens1.get(obj);
+            let newInner = lens2.set(value, inner);
+            return lens1.set(newInner, obj);
+        }
+    );
+}
+
+// ===== PRISM =====
+
+fn prism_create(match, build) {
+    // Create prism
+    return {
+        match: match,
+        build: build
+    };
+}
+
+fn prism_preview(prism, value) {
+    // Preview through prism
+    return prism.match(value);
+}
+
+fn prism_review(prism, value) {
+    // Review through prism
+    return prism.build(value);
+}
+
+// ===== ISO =====
+
+fn iso_create(to, from) {
+    // Create isomorphism
+    return {
+        to: to,
+        from: from
+    };
+}
+
+fn iso_view(iso, value) {
+    // View through iso
+    return iso.to(value);
+}
+
+fn iso_review(iso, value) {
+    // Review through iso
+    return iso.from(value);
+}
+
+// ===== PROFUNCTOR =====
+
+fn profunctor_dimap(prof, f, g) {
+    // Dimap for profunctor
+    return fn(x) {
+        return g(prof(f(x)));
+    };
+}
+
+fn profunctor_lmap(prof, f) {
+    // Left map
+    return profunctor_dimap(prof, f, fn(x) { return x; });
+}
+
+fn profunctor_rmap(prof, g) {
+    // Right map
+    return profunctor_dimap(prof, fn(x) { return x; }, g);
+}
+
+// ===== ARROW =====
+
+fn arrow_arr(f) {
+    // Lift function to arrow
+    return f;
+}
+
+fn arrow_first(arrow) {
+    // Apply arrow to first element of pair
+    return fn(pair) {
+        return [arrow(pair[0]), pair[1]];
+    };
+}
+
+fn arrow_second(arrow) {
+    // Apply arrow to second element of pair
+    return fn(pair) {
+        return [pair[0], arrow(pair[1])];
+    };
+}
+
+fn arrow_compose(f, g) {
+    // Compose arrows
+    return fn(x) { return g(f(x)); };
+}
+
+// ===== BIFUNCTOR =====
+
+fn bifunctor_bimap(bf, f, g) {
+    // Map both sides of bifunctor
+    return bf.bimap(f, g);
+}
+
+fn bifunctor_first(bf, f) {
+    // Map first side
+    return bifunctor_bimap(bf, f, fn(x) { return x; });
+}
+
+fn bifunctor_second(bf, g) {
+    // Map second side
+    return bifunctor_bimap(bf, fn(x) { return x; }, g);
+}
+
+// ===== CONTRAVARIANT =====
+
+fn contravariant_contramap(cv, f) {
+    // Contramap
+    return cv.contramap(f);
+}
+
+// ===== YONEDA LEMMA =====
+
+fn yoneda_lift(functor) {
+    // Lift functor to Yoneda
+    return fn(f) {
+        return functor_map(functor, f);
+    };
+}
+
+fn yoneda_lower(yoneda) {
+    // Lower Yoneda to functor
+    return yoneda(fn(x) { return x; });
+}

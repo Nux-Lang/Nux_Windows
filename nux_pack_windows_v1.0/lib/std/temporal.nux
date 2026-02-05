@@ -1,0 +1,391 @@
+// Nux Standard Library - Temporal Logic & Model Checking
+// LTL, CTL, model checking, and temporal reasoning
+
+// ===== LINEAR TEMPORAL LOGIC (LTL) =====
+
+fn ltl_true() {
+    // True formula
+    return {type: "true"};
+}
+
+fn ltl_false() {
+    // False formula
+    return {type: "false"};
+}
+
+fn ltl_atom(name) {
+    // Atomic proposition
+    return {type: "atom", name: name};
+}
+
+fn ltl_not(formula) {
+    // Negation
+    return {type: "not", formula: formula};
+}
+
+fn ltl_and(left, right) {
+    // Conjunction
+    return {type: "and", left: left, right: right};
+}
+
+fn ltl_or(left, right) {
+    // Disjunction
+    return {type: "or", left: left, right: right};
+}
+
+fn ltl_next(formula) {
+    // Next (X)
+    return {type: "next", formula: formula};
+}
+
+fn ltl_eventually(formula) {
+    // Eventually (F)
+    return {type: "eventually", formula: formula};
+}
+
+fn ltl_globally(formula) {
+    // Globally (G)
+    return {type: "globally", formula: formula};
+}
+
+fn ltl_until(left, right) {
+    // Until (U)
+    return {type: "until", left: left, right: right};
+}
+
+fn ltl_release(left, right) {
+    // Release (R)
+    return {type: "release", left: left, right: right};
+}
+
+// ===== COMPUTATION TREE LOGIC (CTL) =====
+
+fn ctl_EX(formula) {
+    // Exists Next
+    return {type: "EX", formula: formula};
+}
+
+fn ctl_AX(formula) {
+    // All Next
+    return {type: "AX", formula: formula};
+}
+
+fn ctl_EF(formula) {
+    // Exists Finally
+    return {type: "EF", formula: formula};
+}
+
+fn ctl_AF(formula) {
+    // All Finally
+    return {type: "AF", formula: formula};
+}
+
+fn ctl_EG(formula) {
+    // Exists Globally
+    return {type: "EG", formula: formula};
+}
+
+fn ctl_AG(formula) {
+    // All Globally
+    return {type: "AG", formula: formula};
+}
+
+fn ctl_EU(left, right) {
+    // Exists Until
+    return {type: "EU", left: left, right: right};
+}
+
+fn ctl_AU(left, right) {
+    // All Until
+    return {type: "AU", left: left, right: right};
+}
+
+// ===== KRIPKE STRUCTURE =====
+
+fn kripke_create(states, initial, transitions, labels) {
+    // Create Kripke structure
+    return {
+        states: states,
+        initial: initial,
+        transitions: transitions,  // Map: state -> [successor states]
+        labels: labels  // Map: state -> [atomic propositions]
+    };
+}
+
+fn kripke_successors(kripke, state) {
+    // Get successor states
+    return kripke.transitions[state] || [];
+}
+
+fn kripke_satisfies(kripke, state, atom) {
+    // Check if state satisfies atomic proposition
+    let stateLabels = kripke.labels[state] || [];
+    return arr_includes(stateLabels, atom);
+}
+
+// ===== CTL MODEL CHECKING =====
+
+fn ctl_modelCheck(kripke, formula) {
+    // CTL model checking
+    // Returns set of states satisfying formula
+    
+    if (formula.type == "true") {
+        return set_fromArray(kripke.states);
+    }
+    
+    if (formula.type == "false") {
+        return set_create();
+    }
+    
+    if (formula.type == "atom") {
+        let satisfying = [];
+        arr_forEach(kripke.states, fn(state) {
+            if (kripke_satisfies(kripke, state, formula.name)) {
+                arr_push(satisfying, state);
+            }
+        });
+        return set_fromArray(satisfying);
+    }
+    
+    if (formula.type == "not") {
+        let inner = ctl_modelCheck(kripke, formula.formula);
+        return set_difference(set_fromArray(kripke.states), inner);
+    }
+    
+    if (formula.type == "and") {
+        let left = ctl_modelCheck(kripke, formula.left);
+        let right = ctl_modelCheck(kripke, formula.right);
+        return set_intersection(left, right);
+    }
+    
+    if (formula.type == "or") {
+        let left = ctl_modelCheck(kripke, formula.left);
+        let right = ctl_modelCheck(kripke, formula.right);
+        return set_union(left, right);
+    }
+    
+    if (formula.type == "EX") {
+        return ctl_checkEX(kripke, formula.formula);
+    }
+    
+    if (formula.type == "AX") {
+        return ctl_checkAX(kripke, formula.formula);
+    }
+    
+    if (formula.type == "EF") {
+        return ctl_checkEF(kripke, formula.formula);
+    }
+    
+    if (formula.type == "AF") {
+        return ctl_checkAF(kripke, formula.formula);
+    }
+    
+    if (formula.type == "EG") {
+        return ctl_checkEG(kripke, formula.formula);
+    }
+    
+    if (formula.type == "AG") {
+        return ctl_checkAG(kripke, formula.formula);
+    }
+    
+    if (formula.type == "EU") {
+        return ctl_checkEU(kripke, formula.left, formula.right);
+    }
+    
+    if (formula.type == "AU") {
+        return ctl_checkAU(kripke, formula.left, formula.right);
+    }
+    
+    return set_create();
+}
+
+fn ctl_checkEX(kripke, formula) {
+    // EX φ: exists a successor satisfying φ
+    let phi = ctl_modelCheck(kripke, formula);
+    let result = set_create();
+    
+    arr_forEach(kripke.states, fn(state) {
+        let successors = kripke_successors(kripke, state);
+        
+        if (arr_some(successors, fn(succ) { return set_has(phi, succ); })) {
+            set_add(result, state);
+        }
+    });
+    
+    return result;
+}
+
+fn ctl_checkAX(kripke, formula) {
+    // AX φ: all successors satisfy φ
+    let phi = ctl_modelCheck(kripke, formula);
+    let result = set_create();
+    
+    arr_forEach(kripke.states, fn(state) {
+        let successors = kripke_successors(kripke, state);
+        
+        if (arr_every(successors, fn(succ) { return set_has(phi, succ); })) {
+            set_add(result, state);
+        }
+    });
+    
+    return result;
+}
+
+fn ctl_checkEF(kripke, formula) {
+    // EF φ: exists a path to φ
+    let phi = ctl_modelCheck(kripke, formula);
+    let result = set_clone(phi);
+    let changed = true;
+    
+    while (changed) {
+        changed = false;
+        
+        arr_forEach(kripke.states, fn(state) {
+            if (!set_has(result, state)) {
+                let successors = kripke_successors(kripke, state);
+                
+                if (arr_some(successors, fn(succ) { return set_has(result, succ); })) {
+                    set_add(result, state);
+                    changed = true;
+                }
+            }
+        });
+    }
+    
+    return result;
+}
+
+fn ctl_checkAF(kripke, formula) {
+    // AF φ: all paths lead to φ
+    let phi = ctl_modelCheck(kripke, formula);
+    let result = set_clone(phi);
+    let changed = true;
+    
+    while (changed) {
+        changed = false;
+        
+        arr_forEach(kripke.states, fn(state) {
+            if (!set_has(result, state)) {
+                let successors = kripke_successors(kripke, state);
+                
+                if (arr_every(successors, fn(succ) { return set_has(result, succ); })) {
+                    set_add(result, state);
+                    changed = true;
+                }
+            }
+        });
+    }
+    
+    return result;
+}
+
+fn ctl_checkEG(kripke, formula) {
+    // EG φ: exists a path where φ holds globally
+    let phi = ctl_modelCheck(kripke, formula);
+    let result = set_clone(phi);
+    let changed = true;
+    
+    while (changed) {
+        changed = false;
+        let newResult = set_create();
+        
+        set_forEach(result, fn(state) {
+            let successors = kripke_successors(kripke, state);
+            
+            if (arr_some(successors, fn(succ) { return set_has(result, succ); })) {
+                set_add(newResult, state);
+            } else {
+                changed = true;
+            }
+        });
+        
+        result = newResult;
+    }
+    
+    return result;
+}
+
+fn ctl_checkAG(kripke, formula) {
+    // AG φ: φ holds globally on all paths
+    let notPhi = ctl_modelCheck(kripke, ltl_not(formula));
+    let efNotPhi = ctl_checkEF(kripke, ltl_not(formula));
+    return set_difference(set_fromArray(kripke.states), efNotPhi);
+}
+
+fn ctl_checkEU(kripke, left, right) {
+    // E[φ U ψ]: exists path where φ until ψ
+    let phi = ctl_modelCheck(kripke, left);
+    let psi = ctl_modelCheck(kripke, right);
+    let result = set_clone(psi);
+    let changed = true;
+    
+    while (changed) {
+        changed = false;
+        
+        arr_forEach(kripke.states, fn(state) {
+            if (!set_has(result, state) && set_has(phi, state)) {
+                let successors = kripke_successors(kripke, state);
+                
+                if (arr_some(successors, fn(succ) { return set_has(result, succ); })) {
+                    set_add(result, state);
+                    changed = true;
+                }
+            }
+        });
+    }
+    
+    return result;
+}
+
+fn ctl_checkAU(kripke, left, right) {
+    // A[φ U ψ]: on all paths φ until ψ
+    let phi = ctl_modelCheck(kripke, left);
+    let psi = ctl_modelCheck(kripke, right);
+    let result = set_clone(psi);
+    let changed = true;
+    
+    while (changed) {
+        changed = false;
+        
+        arr_forEach(kripke.states, fn(state) {
+            if (!set_has(result, state) && set_has(phi, state)) {
+                let successors = kripke_successors(kripke, state);
+                
+                if (arr_length(successors) > 0 &&
+                    arr_every(successors, fn(succ) { return set_has(result, succ); })) {
+                    set_add(result, state);
+                    changed = true;
+                }
+            }
+        });
+    }
+    
+    return result;
+}
+
+// ===== TEMPORAL REASONING =====
+
+fn temporal_interval(start, end) {
+    // Time interval
+    return {start: start, end: end};
+}
+
+fn temporal_overlaps(i1, i2) {
+    // Check if intervals overlap
+    return i1.start < i2.end && i2.start < i1.end;
+}
+
+fn temporal_before(i1, i2) {
+    // i1 before i2
+    return i1.end < i2.start;
+}
+
+fn temporal_meets(i1, i2) {
+    // i1 meets i2
+    return i1.end == i2.start;
+}
+
+fn temporal_during(i1, i2) {
+    // i1 during i2
+    return i1.start > i2.start && i1.end < i2.end;
+}

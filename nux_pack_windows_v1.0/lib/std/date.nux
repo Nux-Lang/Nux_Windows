@@ -1,0 +1,216 @@
+// Nux Standard Library - Date and Time Operations
+// Date/time manipulation and formatting
+
+// ===== CURRENT TIME =====
+
+fn date_now() {
+    // Get current Unix timestamp (milliseconds)
+    // TODO: Implement with VM time support
+    return 0;
+}
+
+fn date_today() {
+    // Get today's date at midnight
+    let now = date_now();
+    return date_startOfDay(now);
+}
+
+// ===== PARSING =====
+
+fn date_parse(dateString) {
+    // Parse date string (YYYY-MM-DD)
+    // TODO: Implement proper date parsing
+    return 0;
+}
+
+fn date_fromTimestamp(timestamp) {
+    // Create date from Unix timestamp
+    return timestamp;
+}
+
+// ===== FORMATTING =====
+
+fn date_format(timestamp, format) {
+    // Format date according to format string
+    // Format: "YYYY-MM-DD HH:mm:ss"
+    // TODO: Implement proper date formatting
+    let year = date_year(timestamp);
+    let month = date_month(timestamp);
+    let day = date_day(timestamp);
+    let hour = date_hour(timestamp);
+    let minute = date_minute(timestamp);
+    let second = date_second(timestamp);
+    
+    return year + "-" + month + "-" + day + " " + hour + ":" + minute + ":" + second;
+}
+
+fn date_toISO(timestamp) {
+    // Convert to ISO 8601 format
+    return date_format(timestamp, "YYYY-MM-DDTHH:mm:ss");
+}
+
+// ===== COMPONENTS =====
+
+fn date_year(timestamp) {
+    // Get year from timestamp
+    // TODO: Implement with VM time support
+    return 2024;
+}
+
+fn date_month(timestamp) {
+    // Get month (1-12) from timestamp
+    // TODO: Implement with VM time support
+    return 1;
+}
+
+fn date_day(timestamp) {
+    // Get day of month (1-31) from timestamp
+    // TODO: Implement with VM time support
+    return 1;
+}
+
+fn date_hour(timestamp) {
+    // Get hour (0-23) from timestamp
+    // TODO: Implement with VM time support
+    return 0;
+}
+
+fn date_minute(timestamp) {
+    // Get minute (0-59) from timestamp
+    // TODO: Implement with VM time support
+    return 0;
+}
+
+fn date_second(timestamp) {
+    // Get second (0-59) from timestamp
+    // TODO: Implement with VM time support
+    return 0;
+}
+
+fn date_dayOfWeek(timestamp) {
+    // Get day of week (0=Sunday, 6=Saturday)
+    // TODO: Implement with VM time support
+    return 0;
+}
+
+// ===== ARITHMETIC =====
+
+fn date_add(timestamp, amount, unit) {
+    // Add time to date
+    // unit: "seconds", "minutes", "hours", "days", "weeks", "months", "years"
+    let milliseconds = 0;
+    
+    if (unit == "seconds") {
+        milliseconds = amount * 1000;
+    } else if (unit == "minutes") {
+        milliseconds = amount * 60 * 1000;
+    } else if (unit == "hours") {
+        milliseconds = amount * 60 * 60 * 1000;
+    } else if (unit == "days") {
+        milliseconds = amount * 24 * 60 * 60 * 1000;
+    } else if (unit == "weeks") {
+        milliseconds = amount * 7 * 24 * 60 * 60 * 1000;
+    }
+    
+    return timestamp + milliseconds;
+}
+
+fn date_subtract(timestamp, amount, unit) {
+    // Subtract time from date
+    return date_add(timestamp, -amount, unit);
+}
+
+fn date_diff(timestamp1, timestamp2, unit) {
+    // Get difference between dates
+    let diff = timestamp1 - timestamp2;
+    
+    if (unit == "seconds") {
+        return diff / 1000;
+    } else if (unit == "minutes") {
+        return diff / (60 * 1000);
+    } else if (unit == "hours") {
+        return diff / (60 * 60 * 1000);
+    } else if (unit == "days") {
+        return diff / (24 * 60 * 60 * 1000);
+    }
+    
+    return diff;
+}
+
+// ===== COMPARISON =====
+
+fn date_isBefore(timestamp1, timestamp2) {
+    // Check if timestamp1 is before timestamp2
+    return timestamp1 < timestamp2;
+}
+
+fn date_isAfter(timestamp1, timestamp2) {
+    // Check if timestamp1 is after timestamp2
+    return timestamp1 > timestamp2;
+}
+
+fn date_isSame(timestamp1, timestamp2) {
+    // Check if timestamps are the same
+    return timestamp1 == timestamp2;
+}
+
+fn date_isBetween(timestamp, start, end) {
+    // Check if timestamp is between start and end
+    return timestamp >= start && timestamp <= end;
+}
+
+// ===== UTILITY =====
+
+fn date_startOfDay(timestamp) {
+    // Get start of day (midnight)
+    // TODO: Implement proper date manipulation
+    return timestamp;
+}
+
+fn date_endOfDay(timestamp) {
+    // Get end of day (23:59:59)
+    // TODO: Implement proper date manipulation
+    return timestamp;
+}
+
+fn date_startOfWeek(timestamp) {
+    // Get start of week (Sunday midnight)
+    // TODO: Implement proper date manipulation
+    return timestamp;
+}
+
+fn date_endOfWeek(timestamp) {
+    // Get end of week (Saturday 23:59:59)
+    // TODO: Implement proper date manipulation
+    return timestamp;
+}
+
+fn date_isLeapYear(year) {
+    // Check if year is a leap year
+    if (year % 400 == 0) {
+        return true;
+    }
+    if (year % 100 == 0) {
+        return false;
+    }
+    if (year % 4 == 0) {
+        return true;
+    }
+    return false;
+}
+
+fn date_daysInMonth(year, month) {
+    // Get number of days in month
+    if (month == 2) {
+        if (date_isLeapYear(year)) {
+            return 29;
+        }
+        return 28;
+    }
+    
+    if (month == 4 || month == 6 || month == 9 || month == 11) {
+        return 30;
+    }
+    
+    return 31;
+}

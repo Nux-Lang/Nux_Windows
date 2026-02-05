@@ -1,0 +1,104 @@
+// Nux Standard Library - Regular Expressions
+// Pattern matching and text processing
+
+// ===== PATTERN MATCHING =====
+
+fn regex_match(str, pattern) {
+    // Find first match
+    // TODO: Implement with VM regex support
+    return null;
+}
+
+fn regex_matchAll(str, pattern) {
+    // Find all matches
+    // TODO: Implement with VM regex support
+    return [];
+}
+
+fn regex_test(str, pattern) {
+    // Test if pattern matches
+    // TODO: Implement with VM regex support
+    return false;
+}
+
+// ===== REPLACEMENT =====
+
+fn regex_replace(str, pattern, replacement) {
+    // Replace first match
+    // TODO: Implement with VM regex support
+    return str;
+}
+
+fn regex_replaceAll(str, pattern, replacement) {
+    // Replace all matches
+    // TODO: Implement with VM regex support
+    return str;
+}
+
+// ===== SPLITTING =====
+
+fn regex_split(str, pattern) {
+    // Split by pattern
+    // TODO: Implement with VM regex support
+    return [str];
+}
+
+// ===== PATTERN VALIDATION =====
+
+fn regex_isValid(pattern) {
+    // Check if pattern is valid regex
+    // TODO: Implement with VM regex support
+    return true;
+}
+
+// ===== COMMON PATTERNS =====
+
+fn regex_isEmail(str) {
+    // Check if valid email
+    let pattern = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$";
+    return regex_test(str, pattern);
+}
+
+fn regex_isURL(str) {
+    // Check if valid URL
+    let pattern = "^https?://[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}";
+    return regex_test(str, pattern);
+}
+
+fn regex_isPhone(str) {
+    // Check if valid phone number
+    let pattern = "^\\+?[0-9]{10,15}$";
+    return regex_test(str, pattern);
+}
+
+fn regex_isIPv4(str) {
+    // Check if valid IPv4 address
+    let pattern = "^([0-9]{1,3}\\.){3}[0-9]{1,3}$";
+    return regex_test(str, pattern);
+}
+
+fn regex_isHexColor(str) {
+    // Check if valid hex color
+    let pattern = "^#?[0-9A-Fa-f]{6}$";
+    return regex_test(str, pattern);
+}
+
+// ===== EXTRACTION =====
+
+fn regex_extractEmails(str) {
+    // Extract all email addresses
+    let pattern = "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}";
+    return regex_matchAll(str, pattern);
+}
+
+fn regex_extractURLs(str) {
+    // Extract all URLs
+    let pattern = "https?://[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}[^\\s]*";
+    return regex_matchAll(str, pattern);
+}
+
+fn regex_extractNumbers(str) {
+    // Extract all numbers
+    let pattern = "-?[0-9]+\\.?[0-9]*";
+    return regex_matchAll(str, pattern);
+}

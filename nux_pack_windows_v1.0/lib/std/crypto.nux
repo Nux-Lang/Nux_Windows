@@ -1,0 +1,161 @@
+// Nux Standard Library - Cryptography
+// Hashing, encoding, and cryptographic operations
+
+// ===== HASHING =====
+
+fn crypto_md5(data) {
+    // MD5 hash (128-bit)
+    // TODO: Implement with VM crypto support
+    return "";
+}
+
+fn crypto_sha1(data) {
+    // SHA-1 hash (160-bit)
+    // TODO: Implement with VM crypto support
+    return "";
+}
+
+fn crypto_sha256(data) {
+    // SHA-256 hash (256-bit)
+    // TODO: Implement with VM crypto support
+    return "";
+}
+
+fn crypto_sha512(data) {
+    // SHA-512 hash (512-bit)
+    // TODO: Implement with VM crypto support
+    return "";
+}
+
+// ===== ENCODING =====
+
+fn crypto_base64Encode(data) {
+    // Base64 encode
+    // TODO: Implement proper base64 encoding
+    return "";
+}
+
+fn crypto_base64Decode(encoded) {
+    // Base64 decode
+    // TODO: Implement proper base64 decoding
+    return "";
+}
+
+fn crypto_hexEncode(bytes) {
+    // Hex encode bytes
+    let result = "";
+    let i = 0;
+    let hexChars = "0123456789abcdef";
+    
+    while (i < arr_length(bytes)) {
+        let byte = bytes[i];
+        let high = byte / 16;
+        let low = byte % 16;
+        result = result + hexChars[high] + hexChars[low];
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+fn crypto_hexDecode(hex) {
+    // Hex decode to bytes
+    let bytes = [];
+    let i = 0;
+    
+    while (i < str_length(hex)) {
+        let high = crypto_hexCharToInt(hex[i]);
+        let low = crypto_hexCharToInt(hex[i + 1]);
+        bytes[i / 2] = high * 16 + low;
+        i = i + 2;
+    }
+    
+    return bytes;
+}
+
+fn crypto_hexCharToInt(char) {
+    // Convert hex character to integer
+    if (char >= "0" && char <= "9") {
+        return char - "0";
+    }
+    if (char >= "a" && char <= "f") {
+        return char - "a" + 10;
+    }
+    if (char >= "A" && char <= "F") {
+        return char - "A" + 10;
+    }
+    return 0;
+}
+
+// ===== RANDOM =====
+
+fn crypto_randomBytes(count) {
+    // Generate cryptographically secure random bytes
+    // TODO: Implement with VM crypto support
+    let bytes = [];
+    let i = 0;
+    
+    while (i < count) {
+        bytes[i] = randomInt(0, 255);
+        i = i + 1;
+    }
+    
+    return bytes;
+}
+
+fn crypto_uuid() {
+    // Generate UUID v4
+    let bytes = crypto_randomBytes(16);
+    
+    // Set version (4) and variant bits
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    
+    let hex = crypto_hexEncode(bytes);
+    
+    // Format as UUID
+    let part1 = str_substring(hex, 0, 8);
+    let part2 = str_substring(hex, 8, 12);
+    let part3 = str_substring(hex, 12, 16);
+    let part4 = str_substring(hex, 16, 20);
+    let part5 = str_substring(hex, 20, 32);
+    
+    return part1 + "-" + part2 + "-" + part3 + "-" + part4 + "-" + part5;
+}
+
+fn crypto_randomString(length) {
+    // Generate random alphanumeric string
+    let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    let i = 0;
+    
+    while (i < length) {
+        let index = randomInt(0, str_length(chars) - 1);
+        result = result + chars[index];
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// ===== UTILITY =====
+
+fn crypto_hash(data, algorithm) {
+    // Generic hash function
+    if (algorithm == "md5") {
+        return crypto_md5(data);
+    } else if (algorithm == "sha1") {
+        return crypto_sha1(data);
+    } else if (algorithm == "sha256") {
+        return crypto_sha256(data);
+    } else if (algorithm == "sha512") {
+        return crypto_sha512(data);
+    }
+    return "";
+}
+
+fn crypto_compareHash(data, hash, algorithm) {
+    // Compare data hash with expected hash
+    let computed = crypto_hash(data, algorithm);
+    return computed == hash;
+}

@@ -1,0 +1,91 @@
+# Nux System Library
+# System utilities and OS interaction
+
+# Environment variables
+func env_get(key) {
+    asm {
+        key
+        OP_ENV_GET
+    }
+}
+
+func env_set(key, value) {
+    asm {
+        key
+        value
+        OP_ENV_SET
+    }
+}
+
+# Process management
+func exec(command) {
+    asm {
+        command
+        OP_EXEC
+    }
+}
+
+func spawn(command) {
+    asm {
+        command
+        OP_SPAWN
+    }
+}
+
+func exit_program(code) {
+    asm {
+        code
+        EXIT
+    }
+}
+
+# System info
+func platform() {
+    return sys_platform();
+}
+
+func cpu_count() {
+    asm {
+        OP_CPU_COUNT
+    }
+}
+
+func memory_total() {
+    asm {
+        OP_MEM_TOTAL
+    }
+}
+
+func memory_free() {
+    asm {
+        OP_MEM_FREE
+    }
+}
+
+# Working directory
+func getcwd() {
+    asm {
+        OP_GETCWD
+    }
+}
+
+func chdir(path) {
+    asm {
+        path
+        OP_CHDIR
+    }
+}
+
+# Arguments
+func argc() {
+    asm {
+        OP_ARGC
+    }
+}
+
+func argv(index) {
+    asm {
+        index
+        OP_ARGV
+    }
+}

@@ -1,0 +1,131 @@
+# Nux Collections Library
+# Provides List and Map data structures
+
+class List {
+    var data;
+    var size;
+    var capacity;
+    
+    func init() {
+        this.size = 0;
+        this.capacity = 10;
+        this.data = img_alloc(this.capacity, 1);
+    }
+    
+    func append(value) {
+        if (this.size >= this.capacity) {
+            this.resize();
+        }
+        # Store at offset
+        var addr = this.data + this.size;
+        asm {
+            addr
+            value
+            POKE
+        }
+        this.size = this.size + 1;
+    }
+    
+    func get(index) {
+        if (index >= this.size) {
+            return 0;
+        }
+        var addr = this.data + index;
+        asm {
+            addr
+            PEEK
+        }
+    }
+    
+    func set(index, value) {
+        if (index >= this.size) {
+            return;
+        }
+        var addr = this.data + index;
+        asm {
+            addr
+            value
+            POKE
+        }
+    }
+    
+    func length() {
+        return this.size;
+    }
+    
+    func resize() {
+        this.capacity = this.capacity * 2;
+        var new_data = img_alloc(this.capacity, 1);
+        # Copy old data (simplified)
+        this.data = new_data;
+    }
+}
+
+class Map {
+    var keys;
+    var values;
+    var size;
+    
+    func init() {
+        this.size = 0;
+        this.keys = img_alloc(100, 1);
+        this.values = img_alloc(100, 1);
+    }
+    
+    func put(key, value) {
+        # Simple linear search implementation
+        var i = 0;
+        for (i = 0; i < this.size; i = i + 1) {
+            var k_addr = this.keys + i;
+            var existing_key = peek(k_addr);
+            if (existing_key == key) {
+                var v_addr = this.values + i;
+                asm {
+                    v_addr
+                    value
+                    POKE
+                }
+                return;
+            }
+        }
+        # New key
+        var k_addr = this.keys + this.size;
+        var v_addr = this.values + this.size;
+        asm {
+            k_addr
+            key
+            POKE
+        }
+        asm {
+            v_addr
+            value
+            POKE
+        }
+        this.size = this.size + 1;
+    }
+    
+    func get(key) {
+        var i = 0;
+        for (i = 0; i < this.size; i = i + 1) {
+            var k_addr = this.keys + i;
+            var existing_key = peek(k_addr);
+            if (existing_key == key) {
+                var v_addr = this.values + i;
+                return peek(v_addr);
+            }
+        }
+        return 0;
+    }
+    
+    func contains(key) {
+        var i = 0;
+        for (i = 0; i < this.size; i = i + 1) {
+            var k_addr = this.keys + i;
+            var existing_key = peek(k_addr);
+            if (existing_key == key) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+}

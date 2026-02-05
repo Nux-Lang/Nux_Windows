@@ -1,0 +1,67 @@
+# Nux Network Library
+# Provides networking capabilities
+
+# Socket Types
+var SOCK_TCP = 0;
+var SOCK_UDP = 1;
+
+# Network Functions (using asm blocks for intrinsics)
+func net_connect(host, port) {
+    asm {
+        host
+        port
+        OP_NET_CONNECT
+    }
+}
+
+func net_listen(port) {
+    asm {
+        port
+        OP_NET_LISTEN
+    }
+}
+
+func net_accept(socket_id) {
+    asm {
+        socket_id
+        OP_NET_ACCEPT
+    }
+}
+
+func net_send(socket_id, data) {
+    asm {
+        socket_id
+        data
+        OP_NET_SEND
+    }
+}
+
+func net_recv(socket_id) {
+    asm {
+        socket_id
+        OP_NET_RECV
+    }
+}
+
+func net_close(socket_id) {
+    asm {
+        socket_id
+        OP_NET_CLOSE
+    }
+}
+
+# HTTP Helper
+func http_get(url) {
+    asm {
+        url
+        OP_HTTP_GET
+    }
+}
+
+func http_post(url, body) {
+    asm {
+        url
+        body
+        OP_HTTP_POST
+    }
+}

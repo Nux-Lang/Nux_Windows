@@ -1,0 +1,359 @@
+// Nux Linear Types
+// Resource management with linear types (use-once semantics)
+
+// ===== LINEAR TYPE SYSTEM =====
+
+// Linear types ensure resources are used exactly once
+// Prevents: double-free, use-after-free, resource leaks
+
+class Linear<T> {
+    fn constructor(value) {
+        this.value = value;
+        this.consumed = false;
+    }
+    
+    fn use(): T {
+        if (this.consumed) {
+            throw new Error("Linear resource already consumed");
+        }
+        this.consumed = true;
+        return this.value;
+    }
+}
+
+// ===== FILE HANDLES (LINEAR) =====
+
+class FileHandle {
+    fn constructor(path, mode) {
+        this.path = path;
+        this.fd = file_open(path, mode);
+        this.closed = false;
+    }
+    
+    // Must be called exactly once
+    fn close(): void {
+        if (this.closed) {
+            throw new Error("File already closed");
+        }
+        file_close(this.fd);
+        this.closed = true;
+    }
+    
+    fn read(): string {
+        if (this.closed) {
+            throw new Error("Cannot read from closed file");
+        }
+        return file_read(this.fd);
+    }
+}
+
+// Type-safe file operations
+fn with_file<T>(path: string, fn: (FileHandle) -> T): T {
+    let handle = new FileHandle(path, "r");
+    try {
+        return fn(handle);
+    } finally {
+        handle.close();  // Guaranteed to be called
+    }
+}
+
+// ===== AFFINE TYPES =====
+
+// Affine types: use at most once (0 or 1 times)
+
+class Affine<T> {
+    fn constructor(value) {
+        this.value = value;
+        this.used = false;
+    }
+    
+    fn use(): Option<T> {
+        if (this.used) {
+            return Option.none();
+        }
+        this.used = true;
+        return Option.some(this.value);
+    }
+}
+
+// ===== UNIQUE REFERENCES =====
+
+// Unique references: exactly one reference to a value
+
+class Unique<T> {
+    fn constructor(value) {
+        this.value = value;
+    }
+    
+    // Transfer ownership
+    fn move(): Unique<T> {
+        let moved = new Unique(this.value);
+        this.value = null;  // Original is now invalid
+        return moved;
+    }
+    
+    // Borrow immutably (multiple borrows allowed)
+    fn borrow(): Borrowed<T> {
+        return new Borrowed(this.value);
+    }
+    
+    // Borrow mutably (exclusive borrow)
+    fn borrow_mut(): BorrowedMut<T> {
+        return new BorrowedMut(this.value);
+    }
+}
+
+class Borrowed<T> {
+    fn constructor(value) {
+        this.value = value;
+    }
+    
+    fn get(): T {
+        return this.value;
+    }
+}
+
+class BorrowedMut<T> {
+    fn constructor(value) {
+        this.value = value;
+    }
+    
+    fn get(): T {
+        return this.value;
+    }
+    
+    fn set(newValue: T): void {
+        this.value = newValue;
+    }
+}
+
+// ===== OWNERSHIP SYSTEM =====
+
+class Owned<T> {
+    fn constructor(value) {
+        this.value = value;
+        this.owner = true;
+    }
+    
+    fn transfer(): Owned<T> {
+        if (!this.owner) {
+            throw new Error("Cannot transfer non-owned value");
+        }
+        this.owner = false;
+        return new Owned(this.value);
+    }
+    
+    fn drop(): void {
+        if (this.owner) {
+            // Clean up resources
+            this.value = null;
+            this.owner = false;
+        }
+    }
+}
+
+// ===== REGION-BASED MEMORY =====
+
+class Region {
+    fn constructor() {
+        this.allocations = [];
+    }
+    
+    fn allocate<T>(value: T): Ref<T> {
+        let ref = new Ref(value, this);
+        arr_push(this.allocations, ref);
+        return ref;
+    }
+    
+    fn free(): void {
+        // Free all allocations in this region
+        arr_forEach(this.allocations, fn(ref) {
+            ref.invalidate();
+        });
+        this.allocations = [];
+    }
+}
+
+class Ref<T> {
+    fn constructor(value, region) {
+        this.value = value;
+        this.region = region;
+        this.valid = true;
+    }
+    
+    fn get(): T {
+        if (!this.valid) {
+            throw new Error("Reference to freed memory");
+        }
+        return this.value;
+    }
+    
+    fn invalidate(): void {
+        this.valid = false;
+        this.value = null;
+    }
+}
+
+fn with_region<T>(fn: (Region) -> T): T {
+    let region = new Region();
+    try {
+        return fn(region);
+    } finally {
+        region.free();
+    }
+}
+
+// ===== CAPABILITY-BASED SECURITY =====
+
+class Capability<T> {
+    fn constructor(resource, permissions) {
+        this.resource = resource;
+        this.permissions = permissions;  // read, write, execute
+    }
+    
+    fn can_read(): Bool {
+        return arr_contains(this.permissions, "read");
+    }
+    
+    fn can_write(): Bool {
+        return arr_contains(this.permissions, "write");
+    }
+    
+    fn read(): T {
+        if (!this.can_read()) {
+            throw new Error("No read permission");
+        }
+        return this.resource;
+    }
+    
+    fn write(value: T): void {
+        if (!this.can_write()) {
+            throw new Error("No write permission");
+        }
+        this.resource = value;
+    }
+    
+    // Attenuate capability (remove permissions)
+    fn attenuate(permissions): Capability<T> {
+        let newPerms = arr_filter(this.permissions, fn(p) {
+            return arr_contains(permissions, p);
+        });
+        return new Capability(this.resource, newPerms);
+    }
+}
+
+// ===== SESSION TYPES =====
+
+// Protocol specification at type level
+
+class Session {
+    fn constructor(protocol) {
+        this.protocol = protocol;
+        this.state = 0;
+    }
+    
+    fn send<T>(value: T): Session {
+        if (this.protocol[this.state].action != "send") {
+            throw new Error("Protocol violation: expected " + this.protocol[this.state].action);
+        }
+        
+        // Send value
+        this.state = this.state + 1;
+        return this;
+    }
+    
+    fn receive<T>(): T {
+        if (this.protocol[this.state].action != "receive") {
+            throw new Error("Protocol violation: expected " + this.protocol[this.state].action);
+        }
+        
+        // Receive value
+        this.state = this.state + 1;
+        return null;  // Placeholder
+    }
+    
+    fn close(): void {
+        if (this.state != arr_length(this.protocol)) {
+            throw new Error("Protocol not completed");
+        }
+    }
+}
+
+// Example: HTTP protocol
+let httpProtocol = [
+    {action: "send", type: "Request"},
+    {action: "receive", type: "Response"},
+    {action: "close"}
+];
+
+// ===== FRACTIONAL PERMISSIONS =====
+
+class FractionalPerm<T> {
+    fn constructor(value, fraction) {
+        this.value = value;
+        this.fraction = fraction;  // 0.0 to 1.0
+    }
+    
+    fn can_read(): Bool {
+        return this.fraction > 0;
+    }
+    
+    fn can_write(): Bool {
+        return this.fraction == 1.0;
+    }
+    
+    fn split(f: float): [FractionalPerm<T>, FractionalPerm<T>] {
+        if (f < 0 || f > this.fraction) {
+            throw new Error("Invalid split fraction");
+        }
+        
+        return [
+            new FractionalPerm(this.value, f),
+            new FractionalPerm(this.value, this.fraction - f)
+        ];
+    }
+    
+    fn merge(other: FractionalPerm<T>): FractionalPerm<T> {
+        return new FractionalPerm(this.value, this.fraction + other.fraction);
+    }
+}
+
+// ===== SEPARATION LOGIC =====
+
+class SeparationLogic {
+    // Heap assertions
+    fn emp(): Heap {
+        return new Heap({});
+    }
+    
+    fn points_to(loc, value): Heap {
+        let heap = {};
+        heap[loc] = value;
+        return new Heap(heap);
+    }
+    
+    fn sep_conj(h1: Heap, h2: Heap): Heap {
+        // Separating conjunction: h1 * h2
+        // Heaps must be disjoint
+        let combined = {};
+        
+        obj_forEach(h1.data, fn(k, v) {
+            if (h2.data[k] != null) {
+                throw new Error("Heaps not disjoint");
+            }
+            combined[k] = v;
+        });
+        
+        obj_forEach(h2.data, fn(k, v) {
+            combined[k] = v;
+        });
+        
+        return new Heap(combined);
+    }
+}
+
+class Heap {
+    fn constructor(data) {
+        this.data = data;
+    }
+}

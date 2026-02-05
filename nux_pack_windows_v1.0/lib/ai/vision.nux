@@ -1,0 +1,215 @@
+# Nux Computer Vision Library
+# Image processing and vision models
+
+import "ai.tensor";
+import "ai.neuralnet";
+
+# Image preprocessing
+func normalize_image(image, mean, std) {
+    var i = 0;
+    for (i = 0; i < image.size; i = i + 1) {
+        var pixel = mem_read64(image.data + i * 8);
+        var normalized = (pixel - mean) / std;
+        mem_write64(image.data + i * 8, normalized);
+    }
+}
+
+func resize_image(image, new_width, new_height) {
+    var old_width = mem_read64(image.shape + 16);
+    var old_height = mem_read64(image.shape + 8);
+    
+    var new_shape = mem_alloc_aligned(24, 8);
+    mem_write64(new_shape, mem_read64(image.shape));
+    mem_write64(new_shape + 8, new_height);
+    mem_write64(new_shape + 16, new_width);
+    
+    var result = new Tensor();
+    result.init(new_shape, 3);
+    
+    # Bilinear interpolation
+    var y = 0;
+    var x = 0;
+    for (y = 0; y < new_height; y = y + 1) {
+        for (x = 0; x < new_width; x = x + 1) {
+            var src_x = x * old_width / new_width;
+            var src_y = y * old_height / new_height;
+            
+            # Simple nearest neighbor for now
+            var pixel = mem_read64(image.data + (src_y * old_width + src_x) * 8);
+            mem_write64(result.data + (y * new_width + x) * 8, pixel);
+        }
+    }
+    
+    return result;
+}
+
+# Edge detection (Sobel filter)
+func sobel_edge_detection(image) {
+    var width = mem_read64(image.shape + 16);
+    var height = mem_read64(image.shape + 8);
+    
+    var result = new Tensor();
+    result.init(image.shape, image.ndim);
+    
+    var y = 1;
+    var x = 1;
+    for (y = 1; y < height - 1; y = y + 1) {
+        for (x = 1; x < width - 1; x = x + 1) {
+            # Sobel X kernel
+            var gx = 0;
+            gx = gx - mem_read64(image.data + ((y-1) * width + (x-1)) * 8);
+            gx = gx + mem_read64(image.data + ((y-1) * width + (x+1)) * 8);
+            gx = gx - 2 * mem_read64(image.data + (y * width + (x-1)) * 8);
+            gx = gx + 2 * mem_read64(image.data + (y * width + (x+1)) * 8);
+            gx = gx - mem_read64(image.data + ((y+1) * width + (x-1)) * 8);
+            gx = gx + mem_read64(image.data + ((y+1) * width + (x+1)) * 8);
+            
+            # Sobel Y kernel
+            var gy = 0;
+            gy = gy - mem_read64(image.data + ((y-1) * width + (x-1)) * 8);
+            gy = gy - 2 * mem_read64(image.data + ((y-1) * width + x) * 8);
+            gy = gy - mem_read64(image.data + ((y-1) * width + (x+1)) * 8);
+            gy = gy + mem_read64(image.data + ((y+1) * width + (x-1)) * 8);
+            gy = gy + 2 * mem_read64(image.data + ((y+1) * width + x) * 8);
+            gy = gy + mem_read64(image.data + ((y+1) * width + (x+1)) * 8);
+            
+            var magnitude = sqrt(gx * gx + gy * gy);
+            mem_write64(result.data + (y * width + x) * 8, magnitude);
+        }
+    }
+    
+    return result;
+}
+
+# ResNet Block
+class ResNetBlock {
+    var conv1;
+    var conv2;
+    var bn1;
+    var bn2;
+    var downsample;
+    
+    func init(in_channels, out_channels, stride) {
+        this.conv1 = new Conv2DLayer();
+        this.conv1.init(in_channels, out_channels, 3, stride, 1);
+        
+        this.bn1 = new BatchNorm();
+        this.bn1.init(out_channels);
+        
+        this.conv2 = new Conv2DLayer();
+        this.conv2.init(out_channels, out_channels, 3, 1, 1);
+        
+        this.bn2 = new BatchNorm();
+        this.bn2.init(out_channels);
+        
+        if (stride != 1) {
+            this.downsample = new Conv2DLayer();
+            this.downsample.init(in_channels, out_channels, 1, stride, 0);
+        }
+    }
+    
+    func forward(x) {
+        var identity = x;
+        
+        var out = this.conv1.forward(x);
+        # out = this.bn1.forward(out);
+        # Apply ReLU
+        
+        out = this.conv2.forward(out);
+        # out = this.bn2.forward(out);
+        
+        if (this.downsample != 0) {
+            identity = this.downsample.forward(x);
+        }
+        
+        # out = out + identity
+        out = out.add(identity);
+        
+        return out;
+    }
+}
+
+# YOLO-style object detection
+class YOLODetector {
+    var backbone;
+    var num_classes;
+    var num_anchors;
+    var grid_size;
+    
+    func init(num_cls, grid) {
+        this.num_classes = num_cls;
+        this.num_anchors = 3;
+        this.grid_size = grid;
+    }
+    
+    func detect(image, confidence_threshold) {
+        # Forward pass through network
+        var output = this.backbone.forward(image);
+        
+        # Parse detections
+        var detections = new List();
+        detections.init();
+        
+        # ... (detection parsing logic)
+        
+        return detections;
+    }
+    
+    func nms(boxes, scores, iou_threshold) {
+        # Non-Maximum Suppression
+        var keep = new List();
+        keep.init();
+        
+        # ... (NMS implementation)
+        
+        return keep;
+    }
+}
+
+# Image augmentation
+func random_flip(image) {
+    var width = mem_read64(image.shape + 16);
+    var height = mem_read64(image.shape + 8);
+    
+    if ((random() % 2) == 0) {
+        return image;
+    }
+    
+    var result = new Tensor();
+    result.init(image.shape, image.ndim);
+    
+    var y = 0;
+    var x = 0;
+    for (y = 0; y < height; y = y + 1) {
+        for (x = 0; x < width; x = x + 1) {
+            var pixel = mem_read64(image.data + (y * width + x) * 8);
+            mem_write64(result.data + (y * width + (width - 1 - x)) * 8, pixel);
+        }
+    }
+    
+    return result;
+}
+
+func random_crop(image, crop_width, crop_height) {
+    var width = mem_read64(image.shape + 16);
+    var height = mem_read64(image.shape + 8);
+    
+    var max_x = width - crop_width;
+    var max_y = height - crop_height;
+    
+    var start_x = random() % max_x;
+    var start_y = random() % max_y;
+    
+    var crop_shape = mem_alloc_aligned(24, 8);
+    mem_write64(crop_shape, mem_read64(image.shape));
+    mem_write64(crop_shape + 8, crop_height);
+    mem_write64(crop_shape + 16, crop_width);
+    
+    var result = new Tensor();
+    result.init(crop_shape, 3);
+    
+    # Copy cropped region
+    # ... (implementation)
+    
+    return result;
+}

@@ -1,0 +1,235 @@
+# Nux Signal Processing Library
+# Digital Signal Processing (DSP)
+
+import "ai.tensor";
+
+# Fast Fourier Transform
+func fft(real, imag, n) {
+    # Cooley-Tukey FFT algorithm
+    if (n <= 1) {
+        return;
+    }
+    
+    # Bit reversal
+    var j = 0;
+    var i = 0;
+    for (i = 1; i < n; i = i + 1) {
+        var bit = n >> 1;
+        for (;;) {
+            if (j < bit) {
+                break;
+            }
+            j = j - bit;
+            bit = bit >> 1;
+        }
+        j = j + bit;
+        
+        if (i < j) {
+            var temp_r = mem_read64(real + i * 8);
+            var temp_i = mem_read64(imag + i * 8);
+            mem_write64(real + i * 8, mem_read64(real + j * 8));
+            mem_write64(imag + i * 8, mem_read64(imag + j * 8));
+            mem_write64(real + j * 8, temp_r);
+            mem_write64(imag + j * 8, temp_i);
+        }
+    }
+    
+    # FFT computation
+    var len = 2;
+    for (;;) {
+        if (len > n) {
+            break;
+        }
+        
+        var angle = 0 - 2 * 3.14159 / len;
+        var wlen_r = cos(angle);
+        var wlen_i = sin(angle);
+        
+        i = 0;
+        for (i = 0; i < n; i = i + len) {
+            var w_r = 1;
+            var w_i = 0;
+            
+            j = 0;
+            for (j = 0; j < len / 2; j = j + 1) {
+                var u_r = mem_read64(real + (i + j) * 8);
+                var u_i = mem_read64(imag + (i + j) * 8);
+                
+                var v_r = mem_read64(real + (i + j + len / 2) * 8);
+                var v_i = mem_read64(imag + (i + j + len / 2) * 8);
+                
+                var t_r = w_r * v_r - w_i * v_i;
+                var t_i = w_r * v_i + w_i * v_r;
+                
+                mem_write64(real + (i + j) * 8, u_r + t_r);
+                mem_write64(imag + (i + j) * 8, u_i + t_i);
+                mem_write64(real + (i + j + len / 2) * 8, u_r - t_r);
+                mem_write64(imag + (i + j + len / 2) * 8, u_i - t_i);
+                
+                var w_temp = w_r;
+                w_r = w_r * wlen_r - w_i * wlen_i;
+                w_i = w_temp * wlen_i + w_i * wlen_r;
+            }
+        }
+        
+        len = len * 2;
+    }
+}
+
+# Convolution
+func convolve(signal, kernel, sig_len, ker_len, output) {
+    var i = 0;
+    var j = 0;
+    
+    for (i = 0; i < sig_len + ker_len - 1; i = i + 1) {
+        var sum = 0;
+        
+        for (j = 0; j < ker_len; j = j + 1) {
+            if (i - j >= 0) {
+                if (i - j < sig_len) {
+                    var s = mem_read64(signal + (i - j) * 8);
+                    var k = mem_read64(kernel + j * 8);
+                    sum = sum + s * k;
+                }
+            }
+        }
+        
+        mem_write64(output + i * 8, sum);
+    }
+}
+
+# FIR Filter
+class FIRFilter {
+    var coefficients;
+    var num_taps;
+    var buffer;
+    var buffer_index;
+    
+    func init(taps, n) {
+        this.num_taps = n;
+        this.coefficients = mem_alloc_aligned(n * 8, 8);
+        this.buffer = mem_alloc_aligned(n * 8, 8);
+        this.buffer_index = 0;
+        
+        var i = 0;
+        for (i = 0; i < n; i = i + 1) {
+            mem_write64(this.coefficients + i * 8, mem_read64(taps + i * 8));
+        }
+    }
+    
+    func process(sample) {
+        mem_write64(this.buffer + this.buffer_index * 8, sample);
+        this.buffer_index = (this.buffer_index + 1) % this.num_taps;
+        
+        var output = 0;
+        var i = 0;
+        for (i = 0; i < this.num_taps; i = i + 1) {
+            var idx = (this.buffer_index + i) % this.num_taps;
+            var b = mem_read64(this.buffer + idx * 8);
+            var c = mem_read64(this.coefficients + i * 8);
+            output = output + b * c;
+        }
+        
+        return output;
+    }
+}
+
+# IIR Filter (Biquad)
+class BiquadFilter {
+    var b0;
+    var b1;
+    var b2;
+    var a1;
+    var a2;
+    var x1;
+    var x2;
+    var y1;
+    var y2;
+    
+    func init(b0_val, b1_val, b2_val, a1_val, a2_val) {
+        this.b0 = b0_val;
+        this.b1 = b1_val;
+        this.b2 = b2_val;
+        this.a1 = a1_val;
+        this.a2 = a2_val;
+        
+        this.x1 = 0;
+        this.x2 = 0;
+        this.y1 = 0;
+        this.y2 = 0;
+    }
+    
+    func process(input) {
+        var output = this.b0 * input + this.b1 * this.x1 + this.b2 * this.x2;
+        output = output - this.a1 * this.y1 - this.a2 * this.y2;
+        
+        this.x2 = this.x1;
+        this.x1 = input;
+        this.y2 = this.y1;
+        this.y1 = output;
+        
+        return output;
+    }
+}
+
+# Windowing functions
+func hamming_window(n) {
+    var window = mem_alloc_aligned(n * 8, 8);
+    var i = 0;
+    
+    for (i = 0; i < n; i = i + 1) {
+        var val = 0.54 - 0.46 * cos(2 * 3.14159 * i / (n - 1));
+        mem_write64(window + i * 8, val);
+    }
+    
+    return window;
+}
+
+func hann_window(n) {
+    var window = mem_alloc_aligned(n * 8, 8);
+    var i = 0;
+    
+    for (i = 0; i < n; i = i + 1) {
+        var val = 0.5 * (1 - cos(2 * 3.14159 * i / (n - 1)));
+        mem_write64(window + i * 8, val);
+    }
+    
+    return window;
+}
+
+# Spectrogram
+func compute_spectrogram(signal, sig_len, window_size, hop_size) {
+    var num_frames = (sig_len - window_size) / hop_size + 1;
+    var spec = mem_alloc_aligned(num_frames * window_size * 8, 64);
+    
+    var window = hann_window(window_size);
+    var real = mem_alloc_aligned(window_size * 8, 64);
+    var imag = mem_alloc_aligned(window_size * 8, 64);
+    
+    var frame = 0;
+    for (frame = 0; frame < num_frames; frame = frame + 1) {
+        var offset = frame * hop_size;
+        
+        # Apply window
+        var i = 0;
+        for (i = 0; i < window_size; i = i + 1) {
+            var s = mem_read64(signal + (offset + i) * 8);
+            var w = mem_read64(window + i * 8);
+            mem_write64(real + i * 8, s * w);
+            mem_write64(imag + i * 8, 0);
+        }
+        
+        # FFT
+        fft(real, imag, window_size);
+        
+        # Compute magnitude
+        for (i = 0; i < window_size; i = i + 1) {
+            var r = mem_read64(real + i * 8);
+            var im = mem_read64(imag + i * 8);
+            var mag = sqrt(r * r + im * im);
+            mem_write64(spec + (frame * window_size + i) * 8, mag);
+        }
+    }
+    
+    return spec;
+}

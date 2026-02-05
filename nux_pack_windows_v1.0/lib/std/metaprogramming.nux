@@ -1,0 +1,395 @@
+// Nux Standard Library - Metaprogramming
+// Compile-time code generation, macros, and reflection
+
+// ===== REFLECTION =====
+
+fn reflect_typeof(value) {
+    // Get type of value
+    // TODO: Implement with VM intrinsic
+    return "unknown";
+}
+
+fn reflect_fields(obj) {
+    // Get object fields
+    return obj_keys(obj);
+}
+
+fn reflect_methods(obj) {
+    // Get object methods
+    let methods = [];
+    let keys = obj_keys(obj);
+    
+    arr_forEach(keys, fn(key) {
+        if (typeof(obj[key]) == "function") {
+            arr_push(methods, key);
+        }
+    });
+    
+    return methods;
+}
+
+fn reflect_hasField(obj, fieldName) {
+    // Check if object has field
+    return obj_has(obj, fieldName);
+}
+
+fn reflect_getField(obj, fieldName) {
+    // Get field value
+    return obj_get(obj, fieldName);
+}
+
+fn reflect_setField(obj, fieldName, value) {
+    // Set field value
+    obj_set(obj, fieldName, value);
+}
+
+fn reflect_callMethod(obj, methodName, args) {
+    // Call method dynamically
+    let method = obj[methodName];
+    return method(...args);
+}
+
+// ===== MACRO SYSTEM =====
+
+fn macro_define(name, transformer) {
+    // Define macro
+    return {
+        name: name,
+        transformer: transformer
+    };
+}
+
+fn macro_expand(macro, ast) {
+    // Expand macro
+    return macro.transformer(ast);
+}
+
+// Example: Define a 'when' macro
+fn macro_when() {
+    return macro_define("when", fn(ast) {
+        // when(condition) { body } => if (condition) { body }
+        return {
+            type: "if",
+            condition: ast.condition,
+            then: ast.body,
+            else: null
+        };
+    });
+}
+
+// ===== CODE GENERATION =====
+
+fn codegen_function(name, params, body) {
+    // Generate function code
+    let code = "fn " + name + "(";
+    code = code + arr_join(params, ", ");
+    code = code + ") {\n";
+    code = code + body;
+    code = code + "\n}";
+    return code;
+}
+
+fn codegen_class(name, fields, methods) {
+    // Generate class code
+    let code = "class " + name + " {\n";
+    
+    // Fields
+    arr_forEach(fields, fn(field) {
+        code = code + "  " + field.name + ": " + field.type + ";\n";
+    });
+    
+    // Methods
+    arr_forEach(methods, fn(method) {
+        code = code + "  " + codegen_function(method.name, method.params, method.body);
+        code = code + "\n";
+    });
+    
+    code = code + "}";
+    return code;
+}
+
+fn codegen_eval(code) {
+    // Evaluate generated code
+    // TODO: Implement with VM
+    return null;
+}
+
+// ===== TEMPLATE METAPROGRAMMING =====
+
+fn template_instantiate(template, typeArgs) {
+    // Instantiate template with type arguments
+    return {
+        template: template,
+        types: typeArgs
+    };
+}
+
+fn template_specialize(template, types) {
+    // Specialize template for specific types
+    // Generate optimized code for types
+    return template;
+}
+
+// ===== ASPECT-ORIENTED PROGRAMMING =====
+
+fn aspect_create(pointcut, advice) {
+    // Create aspect
+    return {
+        pointcut: pointcut,
+        advice: advice
+    };
+}
+
+fn aspect_before(aspect, fn) {
+    // Execute advice before function
+    return fn(...args) {
+        aspect.advice.before(args);
+        return fn(...args);
+    };
+}
+
+fn aspect_after(aspect, fn) {
+    // Execute advice after function
+    return fn(...args) {
+        let result = fn(...args);
+        aspect.advice.after(result);
+        return result;
+    };
+}
+
+fn aspect_around(aspect, fn) {
+    // Execute advice around function
+    return fn(...args) {
+        return aspect.advice.around(fn, args);
+    };
+}
+
+// ===== TRAIT SYSTEM =====
+
+fn trait_define(name, methods) {
+    // Define trait
+    return {
+        name: name,
+        methods: methods
+    };
+}
+
+fn trait_implement(trait, type, impl) {
+    // Implement trait for type
+    return {
+        trait: trait,
+        type: type,
+        implementation: impl
+    };
+}
+
+fn trait_hasImpl(trait, type) {
+    // Check if type implements trait
+    // TODO: Implement trait registry
+    return false;
+}
+
+// ===== COMPILE-TIME COMPUTATION =====
+
+fn comptime_eval(expr) {
+    // Evaluate expression at compile time
+    // TODO: Implement with compiler
+    return expr;
+}
+
+fn comptime_if(condition, thenBranch, elseBranch) {
+    // Compile-time if
+    if (comptime_eval(condition)) {
+        return thenBranch;
+    } else {
+        return elseBranch;
+    }
+}
+
+fn comptime_assert(condition, message) {
+    // Compile-time assertion
+    if (!comptime_eval(condition)) {
+        // Compiler error
+        print("Compile-time assertion failed: " + message);
+    }
+}
+
+// ===== TYPE INTROSPECTION =====
+
+fn type_name(type) {
+    // Get type name
+    return type.name;
+}
+
+fn type_size(type) {
+    // Get type size in bytes
+    return type.size;
+}
+
+fn type_alignment(type) {
+    // Get type alignment
+    return type.alignment;
+}
+
+fn type_isNumeric(type) {
+    // Check if type is numeric
+    return type.category == "numeric";
+}
+
+fn type_isPointer(type) {
+    // Check if type is pointer
+    return type.category == "pointer";
+}
+
+// ===== ATTRIBUTE SYSTEM =====
+
+fn attr_define(name, value) {
+    // Define attribute
+    return {
+        name: name,
+        value: value
+    };
+}
+
+fn attr_get(obj, attrName) {
+    // Get attribute value
+    if (obj_has(obj.__attributes__, attrName)) {
+        return obj.__attributes__[attrName];
+    }
+    return null;
+}
+
+fn attr_set(obj, attrName, value) {
+    // Set attribute value
+    if (!obj_has(obj, "__attributes__")) {
+        obj.__attributes__ = {};
+    }
+    obj.__attributes__[attrName] = value;
+}
+
+// ===== MIXIN SYSTEM =====
+
+fn mixin_create(name, methods) {
+    // Create mixin
+    return {
+        name: name,
+        methods: methods
+    };
+}
+
+fn mixin_apply(mixin, target) {
+    // Apply mixin to target
+    let keys = obj_keys(mixin.methods);
+    
+    arr_forEach(keys, fn(key) {
+        target[key] = mixin.methods[key];
+    });
+}
+
+// ===== PROXY PATTERN =====
+
+fn proxy_create(target, handler) {
+    // Create proxy
+    return {
+        __target__: target,
+        __handler__: handler,
+        get: fn(prop) {
+            if (obj_has(this.__handler__, "get")) {
+                return this.__handler__.get(this.__target__, prop);
+            }
+            return this.__target__[prop];
+        },
+        set: fn(prop, value) {
+            if (obj_has(this.__handler__, "set")) {
+                this.__handler__.set(this.__target__, prop, value);
+            } else {
+                this.__target__[prop] = value;
+            }
+        }
+    };
+}
+
+// ===== DEPENDENCY INJECTION =====
+
+fn di_container() {
+    // Create DI container
+    return {
+        bindings: {},
+        singletons: {}
+    };
+}
+
+fn di_bind(container, interface, implementation) {
+    // Bind interface to implementation
+    container.bindings[interface] = implementation;
+}
+
+fn di_singleton(container, interface, instance) {
+    // Register singleton
+    container.singletons[interface] = instance;
+}
+
+fn di_resolve(container, interface) {
+    // Resolve dependency
+    if (obj_has(container.singletons, interface)) {
+        return container.singletons[interface];
+    }
+    
+    if (obj_has(container.bindings, interface)) {
+        let impl = container.bindings[interface];
+        return impl();
+    }
+    
+    return null;
+}
+
+// ===== BUILDER PATTERN =====
+
+fn builder_create(type) {
+    // Create builder
+    return {
+        type: type,
+        properties: {}
+    };
+}
+
+fn builder_set(builder, prop, value) {
+    // Set property
+    builder.properties[prop] = value;
+    return builder;
+}
+
+fn builder_build(builder) {
+    // Build object
+    let obj = {};
+    let keys = obj_keys(builder.properties);
+    
+    arr_forEach(keys, fn(key) {
+        obj[key] = builder.properties[key];
+    });
+    
+    return obj;
+}
+
+// ===== FLUENT INTERFACE =====
+
+fn fluent_wrap(obj) {
+    // Wrap object with fluent interface
+    return {
+        __obj__: obj,
+        __chain__: [],
+        call: fn(method, ...args) {
+            arr_push(this.__chain__, {method: method, args: args});
+            return this;
+        },
+        execute: fn() {
+            let result = this.__obj__;
+            
+            arr_forEach(this.__chain__, fn(call) {
+                result = result[call.method](...call.args);
+            });
+            
+            return result;
+        }
+    };
+}

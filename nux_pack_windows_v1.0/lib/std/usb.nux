@@ -1,0 +1,139 @@
+# Nux USB Library
+# USB device enumeration and control
+
+# USB device class
+class USBDevice {
+    var bus;
+    var address;
+    var vendor_id;
+    var product_id;
+    var class_code;
+    var subclass;
+    var protocol;
+    
+    func init(bus_num, addr) {
+        this.bus = bus_num;
+        this.address = addr;
+    }
+    
+    func get_descriptor(desc_type, desc_index, length) {
+        asm {
+            this.bus
+            this.address
+            desc_type
+            desc_index
+            length
+            OP_USB_GET_DESCRIPTOR
+        }
+    }
+    
+    func control_transfer(request_type, request, value, index, data, length) {
+        asm {
+            this.bus
+            this.address
+            request_type
+            request
+            value
+            index
+            data
+            length
+            OP_USB_CONTROL_TRANSFER
+        }
+    }
+    
+    func bulk_transfer(endpoint, data, length) {
+        asm {
+            this.bus
+            this.address
+            endpoint
+            data
+            length
+            OP_USB_BULK_TRANSFER
+        }
+    }
+    
+    func interrupt_transfer(endpoint, data, length) {
+        asm {
+            this.bus
+            this.address
+            endpoint
+            data
+            length
+            OP_USB_INTERRUPT_TRANSFER
+        }
+    }
+}
+
+# XHCI (USB 3.0) controller
+class XHCIController {
+    var base_addr;
+    var cap_regs;
+    var op_regs;
+    
+    func init(pci_device) {
+        var bar0 = pci_device.read_bar(0);
+        this.base_addr = bar0 & 0xFFFFFFF0;
+        
+        var cap_length = mem_read8(this.base_addr);
+        this.cap_regs = this.base_addr;
+        this.op_regs = this.base_addr + cap_length;
+    }
+    
+    func reset() {
+        var usbcmd = mem_read32(this.op_regs + 0);
+        usbcmd = usbcmd | 0x02;
+        mem_write32(this.op_regs + 0, usbcmd);
+        
+        # Wait for reset
+        for (;;) {
+            var status = mem_read32(this.op_regs + 0);
+            if ((status & 0x02) == 0) {
+                break;
+            }
+            thread_yield();
+        }
+    }
+    
+    func start() {
+        var usbcmd = mem_read32(this.op_regs + 0);
+        usbcmd = usbcmd | 0x01;
+        mem_write32(this.op_regs + 0, usbcmd);
+    }
+    
+    func stop() {
+        var usbcmd = mem_read32(this.op_regs + 0);
+        usbcmd = usbcmd & 0xFFFFFFFE;
+        mem_write32(this.op_regs + 0, usbcmd);
+    }
+}
+
+# USB HID (Human Interface Device)
+class USBHIDDevice {
+    var usb_device;
+    var interface_num;
+    
+    func init(device, iface) {
+        this.usb_device = device;
+        this.interface_num = iface;
+    }
+    
+    func get_report(report_type, report_id, length) {
+        var request_type = 0xA1;
+        var request = 0x01;
+        var value = (report_type << 8) | report_id;
+        var index = this.interface_num;
+        
+        var buffer = mem_alloc_aligned(length, 8);
+        this.usb_device.control_transfer(request_type, request, value, index, buffer, length);
+        return buffer;
+    }
+    
+    func set_report(report_type, report_id, data, length) {
+        var request_type = 0x21;
+        var request = 0x09;
+        var value = (report_type << 8) | report_id;
+        var index = this.interface_num;
+        
+        this.usb_device.control_transfer(request_type, request, value, index, data, length);
+    }
+}

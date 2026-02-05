@@ -1,0 +1,533 @@
+# Nux Process Scheduler Library
+# Process management and scheduling algorithms
+
+import "os.kernel";
+
+# ============================================================
+# PROCESS STATES
+# ============================================================
+
+var PROCESS_NEW = 0;
+var PROCESS_READY = 1;
+var PROCESS_RUNNING = 2;
+var PROCESS_WAITING = 3;
+var PROCESS_TERMINATED = 4;
+var PROCESS_ZOMBIE = 5;
+
+# ============================================================
+# PROCESS CONTROL BLOCK
+# ============================================================
+
+class PCB {
+    var pid;
+    var ppid;
+    var state;
+    var priority;
+    var quantum;
+    var quantum_remaining;
+    var cpu_time;
+    var arrival_time;
+    var wait_time;
+    var turnaround_time;
+    
+    # Context
+    var eax; var ebx; var ecx; var edx;
+    var esi; var edi; var ebp; var esp;
+    var eip; var eflags;
+    var cs; var ds; var es; var ss;
+    
+    # Memory
+    var page_directory;
+    var heap_start;
+    var heap_end;
+    var stack_start;
+    var stack_end;
+    
+    # Files
+    var file_descriptors;
+    var current_directory;
+    
+    # Relationships
+    var children;
+    var parent;
+    var exit_code;
+    
+    func init(process_id, parent_id) {
+        this.pid = process_id;
+        this.ppid = parent_id;
+        this.state = PROCESS_NEW;
+        this.priority = 10;
+        this.quantum = 10;
+        this.quantum_remaining = 10;
+        this.cpu_time = 0;
+        this.arrival_time = rdtsc();
+        this.wait_time = 0;
+        
+        this.file_descriptors = new List();
+        this.file_descriptors.init();
+        
+        this.children = new List();
+        this.children.init();
+    }
+    
+    func save_context(context) {
+        this.eax = context.get("eax");
+        this.ebx = context.get("ebx");
+        this.ecx = context.get("ecx");
+        this.edx = context.get("edx");
+        this.esi = context.get("esi");
+        this.edi = context.get("edi");
+        this.ebp = context.get("ebp");
+        this.esp = context.get("esp");
+        this.eip = context.get("eip");
+        this.eflags = context.get("eflags");
+    }
+    
+    func restore_context() {
+        var context = new Map();
+        context.init();
+        context.put("eax", this.eax);
+        context.put("ebx", this.ebx);
+        context.put("ecx", this.ecx);
+        context.put("edx", this.edx);
+        context.put("esi", this.esi);
+        context.put("edi", this.edi);
+        context.put("ebp", this.ebp);
+        context.put("esp", this.esp);
+        context.put("eip", this.eip);
+        context.put("eflags", this.eflags);
+        return context;
+    }
+}
+
+# ============================================================
+# SCHEDULING ALGORITHMS
+# ============================================================
+
+class RoundRobinScheduler {
+    var ready_queue;
+    var current;
+    var time_quantum;
+    
+    func init(quantum) {
+        this.ready_queue = new List();
+        this.ready_queue.init();
+        this.time_quantum = quantum;
+        this.current = 0;
+    }
+    
+    func add_process(pcb) {
+        pcb.state = PROCESS_READY;
+        pcb.quantum_remaining = this.time_quantum;
+        this.ready_queue.append(pcb);
+    }
+    
+    func get_next() {
+        if (this.ready_queue.length() == 0) { return 0; }
+        var next = this.ready_queue.remove(0);
+        next.state = PROCESS_RUNNING;
+        this.current = next;
+        return next;
+    }
+    
+    func preempt(pcb) {
+        pcb.state = PROCESS_READY;
+        pcb.quantum_remaining = this.time_quantum;
+        this.ready_queue.append(pcb);
+    }
+    
+    func tick() {
+        if (this.current == 0) { return 0; }
+        
+        this.current.quantum_remaining = this.current.quantum_remaining - 1;
+        this.current.cpu_time = this.current.cpu_time + 1;
+        
+        if (this.current.quantum_remaining <= 0) {
+            return 1;  # Time to switch
+        }
+        return 0;
+    }
+}
+
+class PriorityScheduler {
+    var ready_queues;
+    var num_priorities;
+    var current;
+    
+    func init(priorities) {
+        this.num_priorities = priorities;
+        this.ready_queues = new List();
+        this.ready_queues.init();
+        
+        var i = 0;
+        for (i = 0; i < priorities; i = i + 1) {
+            var queue = new List();
+            queue.init();
+            this.ready_queues.append(queue);
+        }
+    }
+    
+    func add_process(pcb) {
+        pcb.state = PROCESS_READY;
+        var priority = pcb.priority;
+        if (priority >= this.num_priorities) {
+            priority = this.num_priorities - 1;
+        }
+        this.ready_queues.get(priority).append(pcb);
+    }
+    
+    func get_next() {
+        var i = 0;
+        for (i = 0; i < this.num_priorities; i = i + 1) {
+            var queue = this.ready_queues.get(i);
+            if (queue.length() > 0) {
+                var next = queue.remove(0);
+                next.state = PROCESS_RUNNING;
+                this.current = next;
+                return next;
+            }
+        }
+        return 0;
+    }
+    
+    func boost_priority(pcb) {
+        if (pcb.priority > 0) {
+            pcb.priority = pcb.priority - 1;
+        }
+    }
+    
+    func age_priorities() {
+        var i = 1;
+        for (i = 1; i < this.num_priorities; i = i + 1) {
+            var queue = this.ready_queues.get(i);
+            var j = queue.length() - 1;
+            while (j >= 0) {
+                var pcb = queue.get(j);
+                pcb.wait_time = pcb.wait_time + 1;
+                if (pcb.wait_time > 100) {
+                    queue.remove(j);
+                    pcb.priority = pcb.priority - 1;
+                    pcb.wait_time = 0;
+                    this.ready_queues.get(pcb.priority).append(pcb);
+                }
+                j = j - 1;
+            }
+        }
+    }
+}
+
+class MLFQScheduler {
+    var queues;
+    var num_levels;
+    var time_quantums;
+    var current;
+    var boost_interval;
+    var ticks_since_boost;
+    
+    func init(levels) {
+        this.num_levels = levels;
+        this.queues = new List();
+        this.queues.init();
+        this.time_quantums = new List();
+        this.time_quantums.init();
+        
+        var quantum = 10;
+        var i = 0;
+        for (i = 0; i < levels; i = i + 1) {
+            var queue = new List();
+            queue.init();
+            this.queues.append(queue);
+            this.time_quantums.append(quantum);
+            quantum = quantum * 2;
+        }
+        
+        this.boost_interval = 1000;
+        this.ticks_since_boost = 0;
+    }
+    
+    func add_process(pcb) {
+        pcb.state = PROCESS_READY;
+        pcb.priority = 0;
+        pcb.quantum_remaining = this.time_quantums.get(0);
+        this.queues.get(0).append(pcb);
+    }
+    
+    func get_next() {
+        var i = 0;
+        for (i = 0; i < this.num_levels; i = i + 1) {
+            var queue = this.queues.get(i);
+            if (queue.length() > 0) {
+                var next = queue.remove(0);
+                next.state = PROCESS_RUNNING;
+                this.current = next;
+                return next;
+            }
+        }
+        return 0;
+    }
+    
+    func demote(pcb) {
+        if (pcb.priority < this.num_levels - 1) {
+            pcb.priority = pcb.priority + 1;
+        }
+        pcb.quantum_remaining = this.time_quantums.get(pcb.priority);
+        pcb.state = PROCESS_READY;
+        this.queues.get(pcb.priority).append(pcb);
+    }
+    
+    func tick() {
+        this.ticks_since_boost = this.ticks_since_boost + 1;
+        
+        if (this.ticks_since_boost >= this.boost_interval) {
+            this.boost_all();
+            this.ticks_since_boost = 0;
+        }
+        
+        if (this.current == 0) { return 0; }
+        
+        this.current.quantum_remaining = this.current.quantum_remaining - 1;
+        this.current.cpu_time = this.current.cpu_time + 1;
+        
+        if (this.current.quantum_remaining <= 0) {
+            return 1;
+        }
+        return 0;
+    }
+    
+    func boost_all() {
+        var i = 1;
+        for (i = 1; i < this.num_levels; i = i + 1) {
+            var queue = this.queues.get(i);
+            while (queue.length() > 0) {
+                var pcb = queue.remove(0);
+                pcb.priority = 0;
+                pcb.quantum_remaining = this.time_quantums.get(0);
+                this.queues.get(0).append(pcb);
+            }
+        }
+    }
+}
+
+class CFSScheduler {
+    var tasks;
+    var current;
+    var min_granularity;
+    var target_latency;
+    
+    func init() {
+        this.tasks = new List();
+        this.tasks.init();
+        this.min_granularity = 1;
+        this.target_latency = 20;
+    }
+    
+    func add_process(pcb) {
+        pcb.state = PROCESS_READY;
+        this.tasks.append(pcb);
+    }
+    
+    func get_next() {
+        if (this.tasks.length() == 0) { return 0; }
+        
+        # Find task with minimum vruntime
+        var min_vruntime = 999999999;
+        var min_idx = 0;
+        var i = 0;
+        for (i = 0; i < this.tasks.length(); i = i + 1) {
+            var task = this.tasks.get(i);
+            if (task.cpu_time < min_vruntime) {
+                min_vruntime = task.cpu_time;
+                min_idx = i;
+            }
+        }
+        
+        var next = this.tasks.get(min_idx);
+        next.state = PROCESS_RUNNING;
+        this.current = next;
+        return next;
+    }
+    
+    func calculate_timeslice(pcb) {
+        var weight = 1024 / pcb.priority;
+        var total_weight = 0;
+        var i = 0;
+        for (i = 0; i < this.tasks.length(); i = i + 1) {
+            total_weight = total_weight + 1024 / this.tasks.get(i).priority;
+        }
+        
+        var slice = this.target_latency * weight / total_weight;
+        if (slice < this.min_granularity) {
+            slice = this.min_granularity;
+        }
+        return slice;
+    }
+}
+
+# ============================================================
+# PROCESS MANAGER
+# ============================================================
+
+class ProcessManager {
+    var processes;
+    var next_pid;
+    var scheduler;
+    var current_process;
+    
+    func init(sched) {
+        this.processes = new Map();
+        this.processes.init();
+        this.next_pid = 1;
+        this.scheduler = sched;
+    }
+    
+    func create_process(parent_pid) {
+        var pcb = new PCB();
+        pcb.init(this.next_pid, parent_pid);
+        
+        this.processes.put(this.next_pid, pcb);
+        this.next_pid = this.next_pid + 1;
+        
+        if (parent_pid != 0) {
+            var parent = this.processes.get(parent_pid);
+            if (parent != 0) {
+                parent.children.append(pcb);
+                pcb.parent = parent;
+            }
+        }
+        
+        this.scheduler.add_process(pcb);
+        return pcb;
+    }
+    
+    func terminate_process(pid, exit_code) {
+        var pcb = this.processes.get(pid);
+        if (pcb == 0) { return; }
+        
+        pcb.state = PROCESS_ZOMBIE;
+        pcb.exit_code = exit_code;
+        
+        # Reparent children to init (pid 1)
+        var i = 0;
+        for (i = 0; i < pcb.children.length(); i = i + 1) {
+            var child = pcb.children.get(i);
+            child.ppid = 1;
+            var init = this.processes.get(1);
+            if (init != 0) {
+                init.children.append(child);
+            }
+        }
+        
+        # Notify parent
+        if (pcb.parent != 0) {
+            # Wake parent if waiting
+        }
+    }
+    
+    func wait_for_child(parent_pid) {
+        var parent = this.processes.get(parent_pid);
+        if (parent == 0) { return -1; }
+        
+        var i = 0;
+        for (i = 0; i < parent.children.length(); i = i + 1) {
+            var child = parent.children.get(i);
+            if (child.state == PROCESS_ZOMBIE) {
+                var exit_code = child.exit_code;
+                parent.children.remove(i);
+                this.processes.remove(child.pid);
+                return exit_code;
+            }
+        }
+        
+        # Block parent
+        parent.state = PROCESS_WAITING;
+        return -1;
+    }
+    
+    func schedule() {
+        if (this.current_process != 0) {
+            if (this.current_process.state == PROCESS_RUNNING) {
+                this.scheduler.preempt(this.current_process);
+            }
+        }
+        
+        var next = this.scheduler.get_next();
+        this.current_process = next;
+        return next;
+    }
+    
+    func get_process(pid) {
+        return this.processes.get(pid);
+    }
+}
+
+# ============================================================
+# THREAD SUPPORT
+# ============================================================
+
+class Thread {
+    var tid;
+    var state;
+    var priority;
+    var stack;
+    var stack_size;
+    var entry_point;
+    var arg;
+    var parent_process;
+    
+    var esp;
+    var ebp;
+    var eip;
+    
+    func init(thread_id, process, entry, argument, s_size) {
+        this.tid = thread_id;
+        this.parent_process = process;
+        this.entry_point = entry;
+        this.arg = argument;
+        this.stack_size = s_size;
+        this.state = PROCESS_NEW;
+        this.priority = 10;
+    }
+    
+    func start() {
+        this.state = PROCESS_READY;
+        this.eip = this.entry_point;
+    }
+}
+
+class ThreadManager {
+    var threads;
+    var next_tid;
+    var spinlock;
+    
+    func init() {
+        this.threads = new Map();
+        this.threads.init();
+        this.next_tid = 1;
+        this.spinlock = new Spinlock();
+        this.spinlock.init();
+    }
+    
+    func create_thread(process, entry, arg) {
+        this.spinlock.acquire();
+        
+        var thread = new Thread();
+        thread.init(this.next_tid, process, entry, arg, 4096);
+        
+        this.threads.put(this.next_tid, thread);
+        this.next_tid = this.next_tid + 1;
+        
+        this.spinlock.release();
+        return thread;
+    }
+    
+    func join(tid) {
+        var thread = this.threads.get(tid);
+        if (thread == 0) { return; }
+        
+        while (thread.state != PROCESS_TERMINATED) {
+            # Yield
+        }
+        
+        this.threads.remove(tid);
+    }
+}

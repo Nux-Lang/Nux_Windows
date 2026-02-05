@@ -1,0 +1,56 @@
+# Nux NLP Library
+# Natural Language Processing
+
+import "ai.tensor";
+
+class Tokenizer {
+    var vocab_size;
+    
+    func init(size) {
+        this.vocab_size = size;
+    }
+    
+    func encode(text) {
+        var tokens = new List();
+        tokens.init();
+        return tokens;
+    }
+}
+
+class Embedding {
+    var weight;
+    var num_embeddings;
+    var embedding_dim;
+    
+    func init(num, dim) {
+        this.num_embeddings = num;
+        this.embedding_dim = dim;
+        
+        var shape = mem_alloc_aligned(16, 8);
+        mem_write64(shape, num);
+        mem_write64(shape + 8, dim);
+        
+        this.weight = new Tensor();
+        this.weight.init(shape, 2);
+    }
+}
+
+class LSTMCell {
+    var input_size;
+    var hidden_size;
+    
+    func init(in_size, hid_size) {
+        this.input_size = in_size;
+        this.hidden_size = hid_size;
+    }
+}
+
+class MultiHeadAttention {
+    var num_heads;
+    var embed_dim;
+    
+    func init(emb_dim, heads) {
+        this.embed_dim = emb_dim;
+        this.num_heads = heads;
+    }
+}

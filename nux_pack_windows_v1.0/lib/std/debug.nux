@@ -1,0 +1,234 @@
+# Nux Debugging Library
+# Debugging and profiling utilities
+
+import "std.cpu";
+import "std.memory";
+
+class Debugger {
+    var breakpoints;
+    var watchpoints;
+    var call_stack;
+    
+    func init() {
+        this.breakpoints = new Map();
+        this.breakpoints.init();
+        
+        this.watchpoints = new List();
+        this.watchpoints.init();
+        
+        this.call_stack = new List();
+        this.call_stack.init();
+    }
+    
+    func set_breakpoint(address) {
+        # Set INT3 instruction
+        var original_byte = mem_read8(address);
+        this.breakpoints.put(address, original_byte);
+        
+        mem_write8(address, 0xCC);
+    }
+    
+    func remove_breakpoint(address) {
+        var original = this.breakpoints.get(address);
+        mem_write8(address, original);
+        this.breakpoints.put(address, 0);
+    }
+    
+    func add_watchpoint(address, size) {
+        var wp = new Map();
+        wp.init();
+        wp.put("address", address);
+        wp.put("size", size);
+        wp.put("value", mem_read64(address));
+        
+        this.watchpoints.append(wp);
+    }
+    
+    func check_watchpoints() {
+        var i = 0;
+        for (i = 0; i < this.watchpoints.length(); i = i + 1) {
+            var wp = this.watchpoints.get(i);
+            var addr = wp.get("address");
+            var old_value = wp.get("value");
+            var new_value = mem_read64(addr);
+            
+            if (old_value != new_value) {
+                println("Watchpoint hit at ");
+                println(addr);
+                println(": ");
+                println(old_value);
+                println(" -> ");
+                println(new_value);
+                
+                wp.put("value", new_value);
+            }
+        }
+    }
+    
+    func backtrace() {
+        println("Call stack:");
+        
+        var i = 0;
+        for (i = 0; i < this.call_stack.length(); i = i + 1) {
+            var frame = this.call_stack.get(i);
+            println("  #");
+            println(i);
+            println(" ");
+            println(frame.get("function"));
+            println(" at ");
+            println(frame.get("address"));
+        }
+    }
+}
+
+class MemoryProfiler {
+    var allocations;
+    var total_allocated;
+    var total_freed;
+    var peak_usage;
+    
+    func init() {
+        this.allocations = new Map();
+        this.allocations.init();
+        this.total_allocated = 0;
+        this.total_freed = 0;
+        this.peak_usage = 0;
+    }
+    
+    func track_allocation(ptr, size) {
+        this.allocations.put(ptr, size);
+        this.total_allocated = this.total_allocated + size;
+        
+        var current_usage = this.total_allocated - this.total_freed;
+        if (current_usage > this.peak_usage) {
+            this.peak_usage = current_usage;
+        }
+    }
+    
+    func track_free(ptr) {
+        var size = this.allocations.get(ptr);
+        if (size != 0) {
+            this.total_freed = this.total_freed + size;
+            this.allocations.put(ptr, 0);
+        }
+    }
+    
+    func report() {
+        println("Memory Profile:");
+        println("  Total allocated: ");
+        println(this.total_allocated);
+        println(" bytes");
+        println("  Total freed: ");
+        println(this.total_freed);
+        println(" bytes");
+        println("  Peak usage: ");
+        println(this.peak_usage);
+        println(" bytes");
+        
+        var leaks = 0;
+        # Count leaks
+        # ... (implementation)
+        
+        println("  Leaked: ");
+        println(leaks);
+        println(" bytes");
+    }
+}
+
+class CPUProfiler {
+    var samples;
+    var sample_count;
+    var start_time;
+    
+    func init() {
+        this.samples = new Map();
+        this.samples.init();
+        this.sample_count = 0;
+    }
+    
+    func start() {
+        this.start_time = rdtsc();
+    }
+    
+    func sample(function_name) {
+        var count = this.samples.get(function_name);
+        if (count == 0) {
+            count = 0;
+        }
+        
+        this.samples.put(function_name, count + 1);
+        this.sample_count = this.sample_count + 1;
+    }
+    
+    func stop() {
+        var end_time = rdtsc();
+        var duration = end_time - this.start_time;
+        
+        println("CPU Profile:");
+        println("  Duration: ");
+        println(duration);
+        println(" cycles");
+        println("  Samples: ");
+        println(this.sample_count);
+        
+        # Print top functions
+        # ... (implementation)
+    }
+}
+
+class StackTracer {
+    var traces;
+    
+    func init() {
+        this.traces = new List();
+        this.traces.init();
+    }
+    
+    func capture_trace() {
+        var trace = new List();
+        trace.init();
+        
+        # Walk stack frames
+        var rbp = 0;
+        asm {
+            "MOV RAX, RBP"
+        }
+        
+        for (;;) {
+            if (rbp == 0) {
+                break;
+            }
+            
+            var return_addr = mem_read64(rbp + 8);
+            trace.append(return_addr);
+            
+            rbp = mem_read64(rbp);
+        }
+        
+        this.traces.append(trace);
+        return trace;
+    }
+}
+
+func assert_with_trace(condition, message) {
+    if (condition == 0) {
+        println("Assertion failed: ");
+        println(message);
+        
+        var tracer = new StackTracer();
+        tracer.init();
+        var trace = tracer.capture_trace();
+        
+        println("Stack trace:");
+        var i = 0;
+        for (i = 0; i < trace.length(); i = i + 1) {
+            println("  ");
+            println(trace.get(i));
+        }
+        
+        # Abort
+        asm {
+            "INT3"
+        }
+    }
+}

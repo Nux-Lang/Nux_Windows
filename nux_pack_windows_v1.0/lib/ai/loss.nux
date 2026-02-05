@@ -1,0 +1,211 @@
+# Nux Loss Functions Library
+# Common loss functions for neural networks
+
+import "ai.tensor";
+
+# Mean Squared Error (MSE)
+func mse_loss(predictions, targets) {
+    var sum = 0;
+    var i = 0;
+    
+    for (i = 0; i < predictions.size; i = i + 1) {
+        var pred = mem_read64(predictions.data + i * 8);
+        var target = mem_read64(targets.data + i * 8);
+        var diff = pred - target;
+        sum = sum + diff * diff;
+    }
+    
+    return sum / predictions.size;
+}
+
+func mse_loss_derivative(predictions, targets, gradients) {
+    var i = 0;
+    for (i = 0; i < predictions.size; i = i + 1) {
+        var pred = mem_read64(predictions.data + i * 8);
+        var target = mem_read64(targets.data + i * 8);
+        var grad = 2 * (pred - target) / predictions.size;
+        mem_write64(gradients.data + i * 8, grad);
+    }
+}
+
+# Binary Cross-Entropy
+func binary_crossentropy(predictions, targets) {
+    var sum = 0;
+    var i = 0;
+    var epsilon = 1e-7;
+    
+    for (i = 0; i < predictions.size; i = i + 1) {
+        var pred = mem_read64(predictions.data + i * 8);
+        var target = mem_read64(targets.data + i * 8);
+        
+        # Clip predictions for numerical stability
+        if (pred < epsilon) {
+            pred = epsilon;
+        }
+        if (pred > 1 - epsilon) {
+            pred = 1 - epsilon;
+        }
+        
+        var loss = 0 - (target * log(pred) + (1 - target) * log(1 - pred));
+        sum = sum + loss;
+    }
+    
+    return sum / predictions.size;
+}
+
+# Categorical Cross-Entropy
+func categorical_crossentropy(predictions, targets) {
+    var sum = 0;
+    var i = 0;
+    var epsilon = 1e-7;
+    
+    for (i = 0; i < predictions.size; i = i + 1) {
+        var pred = mem_read64(predictions.data + i * 8);
+        var target = mem_read64(targets.data + i * 8);
+        
+        if (pred < epsilon) {
+            pred = epsilon;
+        }
+        
+        sum = sum - target * log(pred);
+    }
+    
+    return sum / predictions.size;
+}
+
+# Sparse Categorical Cross-Entropy
+func sparse_categorical_crossentropy(predictions, target_indices, num_samples, num_classes) {
+    var sum = 0;
+    var i = 0;
+    var epsilon = 1e-7;
+    
+    for (i = 0; i < num_samples; i = i + 1) {
+        var target_idx = mem_read64(target_indices + i * 8);
+        var pred = mem_read64(predictions.data + (i * num_classes + target_idx) * 8);
+        
+        if (pred < epsilon) {
+            pred = epsilon;
+        }
+        
+        sum = sum - log(pred);
+    }
+    
+    return sum / num_samples;
+}
+
+# Hinge Loss (SVM)
+func hinge_loss(predictions, targets) {
+    var sum = 0;
+    var i = 0;
+    
+    for (i = 0; i < predictions.size; i = i + 1) {
+        var pred = mem_read64(predictions.data + i * 8);
+        var target = mem_read64(targets.data + i * 8);
+        
+        var margin = 1 - target * pred;
+        if (margin > 0) {
+            sum = sum + margin;
+        }
+    }
+    
+    return sum / predictions.size;
+}
+
+# Huber Loss (robust to outliers)
+func huber_loss(predictions, targets, delta) {
+    var sum = 0;
+    var i = 0;
+    
+    for (i = 0; i < predictions.size; i = i + 1) {
+        var pred = mem_read64(predictions.data + i * 8);
+        var target = mem_read64(targets.data + i * 8);
+        var diff = pred - target;
+        
+        if (diff < 0) {
+            diff = 0 - diff;
+        }
+        
+        if (diff <= delta) {
+            sum = sum + 0.5 * diff * diff;
+        }
+        if (diff > delta) {
+            sum = sum + delta * (diff - 0.5 * delta);
+        }
+    }
+    
+    return sum / predictions.size;
+}
+
+# KL Divergence
+func kl_divergence(p, q) {
+    var sum = 0;
+    var i = 0;
+    var epsilon = 1e-7;
+    
+    for (i = 0; i < p.size; i = i + 1) {
+        var p_val = mem_read64(p.data + i * 8);
+        var q_val = mem_read64(q.data + i * 8);
+        
+        if (p_val > epsilon) {
+            if (q_val < epsilon) {
+                q_val = epsilon;
+            }
+            sum = sum + p_val * log(p_val / q_val);
+        }
+    }
+    
+    return sum;
+}
+
+# Focal Loss (for imbalanced datasets)
+func focal_loss(predictions, targets, alpha, gamma) {
+    var sum = 0;
+    var i = 0;
+    var epsilon = 1e-7;
+    
+    for (i = 0; i < predictions.size; i = i + 1) {
+        var pred = mem_read64(predictions.data + i * 8);
+        var target = mem_read64(targets.data + i * 8);
+        
+        if (pred < epsilon) {
+            pred = epsilon;
+        }
+        if (pred > 1 - epsilon) {
+            pred = 1 - epsilon;
+        }
+        
+        var pt = target * pred + (1 - target) * (1 - pred);
+        var focal_weight = pow(1 - pt, gamma);
+        var ce = 0 - (target * log(pred) + (1 - target) * log(1 - pred));
+        
+        sum = sum + alpha * focal_weight * ce;
+    }
+    
+    return sum / predictions.size;
+}
+
+# Contrastive Loss (for siamese networks)
+func contrastive_loss(embedding1, embedding2, label, margin) {
+    var distance = 0;
+    var i = 0;
+    
+    # Euclidean distance
+    for (i = 0; i < embedding1.size; i = i + 1) {
+        var e1 = mem_read64(embedding1.data + i * 8);
+        var e2 = mem_read64(embedding2.data + i * 8);
+        var diff = e1 - e2;
+        distance = distance + diff * diff;
+    }
+    distance = sqrt(distance);
+    
+    # Contrastive loss
+    if (label == 1) {
+        return distance * distance;
+    }
+    
+    var margin_diff = margin - distance;
+    if (margin_diff > 0) {
+        return margin_diff * margin_diff;
+    }
+    return 0;
+}

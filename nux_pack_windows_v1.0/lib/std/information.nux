@@ -1,0 +1,332 @@
+// Nux Standard Library - Information Theory & Coding
+// Entropy, compression, error correction, and channel coding
+
+// ===== ENTROPY =====
+
+fn entropy_shannon(probabilities) {
+    // Shannon entropy H(X) = -Σ p(x) log p(x)
+    let entropy = 0.0;
+    
+    arr_forEach(probabilities, fn(p) {
+        if (p > 0) {
+            entropy = entropy - p * log2(p);
+        }
+    });
+    
+    return entropy;
+}
+
+fn entropy_conditional(jointProbs, marginalProbs) {
+    // Conditional entropy H(Y|X)
+    let h = 0.0;
+    
+    let i = 0;
+    while (i < arr_length(jointProbs)) {
+        let j = 0;
+        while (j < arr_length(jointProbs[i])) {
+            let pxy = jointProbs[i][j];
+            let px = marginalProbs[i];
+            
+            if (pxy > 0 && px > 0) {
+                h = h - pxy * log2(pxy / px);
+            }
+            
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    return h;
+}
+
+fn entropy_joint(jointProbs) {
+    // Joint entropy H(X,Y)
+    let h = 0.0;
+    
+    arr_forEach(jointProbs, fn(row) {
+        arr_forEach(row, fn(p) {
+            if (p > 0) {
+                h = h - p * log2(p);
+            }
+        });
+    });
+    
+    return h;
+}
+
+fn entropy_relative(p, q) {
+    // Relative entropy (KL divergence) D(p||q)
+    let kl = 0.0;
+    
+    let i = 0;
+    while (i < arr_length(p)) {
+        if (p[i] > 0 && q[i] > 0) {
+            kl = kl + p[i] * log2(p[i] / q[i]);
+        }
+        i = i + 1;
+    }
+    
+    return kl;
+}
+
+// ===== MUTUAL INFORMATION =====
+
+fn mutualinfo_compute(jointProbs, marginalX, marginalY) {
+    // Mutual information I(X;Y) = H(X) + H(Y) - H(X,Y)
+    let hx = entropy_shannon(marginalX);
+    let hy = entropy_shannon(marginalY);
+    let hxy = entropy_joint(jointProbs);
+    
+    return hx + hy - hxy;
+}
+
+// ===== HUFFMAN CODING =====
+
+fn huffman_encode(frequencies) {
+    // Huffman encoding
+    let nodes = [];
+    
+    // Create leaf nodes
+    let symbols = obj_keys(frequencies);
+    arr_forEach(symbols, fn(symbol) {
+        arr_push(nodes, {
+            symbol: symbol,
+            freq: frequencies[symbol],
+            left: null,
+            right: null
+        });
+    });
+    
+    // Build Huffman tree
+    while (arr_length(nodes) > 1) {
+        // Sort by frequency
+        nodes = arr_sort(nodes, fn(a, b) { return a.freq - b.freq; });
+        
+        // Take two minimum nodes
+        let left = arr_shift(nodes);
+        let right = arr_shift(nodes);
+        
+        // Create parent node
+        let parent = {
+            symbol: null,
+            freq: left.freq + right.freq,
+            left: left,
+            right: right
+        };
+        
+        arr_push(nodes, parent);
+    }
+    
+    // Generate codes
+    let codes = {};
+    huffman_generateCodes(nodes[0], "", codes);
+    
+    return codes;
+}
+
+fn huffman_generateCodes(node, code, codes) {
+    // Generate Huffman codes recursively
+    if (node.symbol != null) {
+        codes[node.symbol] = code;
+        return;
+    }
+    
+    if (node.left) {
+        huffman_generateCodes(node.left, code + "0", codes);
+    }
+    
+    if (node.right) {
+        huffman_generateCodes(node.right, code + "1", codes);
+    }
+}
+
+// ===== ARITHMETIC CODING =====
+
+fn arithmetic_encode(message, probabilities) {
+    // Arithmetic encoding
+    let low = 0.0;
+    let high = 1.0;
+    
+    arr_forEach(message, fn(symbol) {
+        let range = high - low;
+        let cumProb = 0.0;
+        
+        // Find cumulative probability
+        let symbols = obj_keys(probabilities);
+        let i = 0;
+        while (i < arr_length(symbols)) {
+            if (symbols[i] == symbol) {
+                break;
+            }
+            cumProb = cumProb + probabilities[symbols[i]];
+            i = i + 1;
+        }
+        
+        high = low + range * (cumProb + probabilities[symbol]);
+        low = low + range * cumProb;
+    });
+    
+    return (low + high) / 2.0;
+}
+
+// ===== HAMMING CODE =====
+
+fn hamming_encode(data) {
+    // Hamming(7,4) encoding
+    let n = 7;  // Code length
+    let k = 4;  // Data length
+    
+    // Generator matrix
+    let G = [
+        [1, 0, 0, 0, 1, 1, 0],
+        [0, 1, 0, 0, 1, 0, 1],
+        [0, 0, 1, 0, 0, 1, 1],
+        [0, 0, 0, 1, 1, 1, 1]
+    ];
+    
+    // Encode
+    let codeword = [];
+    let i = 0;
+    while (i < n) {
+        let bit = 0;
+        let j = 0;
+        while (j < k) {
+            bit = bit ^ (data[j] & G[j][i]);
+            j = j + 1;
+        }
+        arr_push(codeword, bit);
+        i = i + 1;
+    }
+    
+    return codeword;
+}
+
+fn hamming_decode(received) {
+    // Hamming(7,4) decoding
+    // Parity check matrix
+    let H = [
+        [1, 1, 0, 1, 1, 0, 0],
+        [1, 0, 1, 1, 0, 1, 0],
+        [0, 1, 1, 1, 0, 0, 1]
+    ];
+    
+    // Compute syndrome
+    let syndrome = [];
+    let i = 0;
+    while (i < 3) {
+        let bit = 0;
+        let j = 0;
+        while (j < 7) {
+            bit = bit ^ (received[j] & H[i][j]);
+            j = j + 1;
+        }
+        arr_push(syndrome, bit);
+        i = i + 1;
+    }
+    
+    // Find error position
+    let errorPos = syndrome[0] + syndrome[1] * 2 + syndrome[2] * 4;
+    
+    // Correct error
+    if (errorPos > 0) {
+        received[errorPos - 1] = received[errorPos - 1] ^ 1;
+    }
+    
+    // Extract data
+    return [received[0], received[1], received[2], received[3]];
+}
+
+// ===== REED-SOLOMON CODE =====
+
+fn reedsolomon_encode(data, n, k) {
+    // Reed-Solomon encoding
+    // n = code length, k = data length
+    // TODO: Implement full RS encoding
+    return data;
+}
+
+fn reedsolomon_decode(received, n, k) {
+    // Reed-Solomon decoding
+    // TODO: Implement full RS decoding
+    return received;
+}
+
+// ===== LDPC CODE =====
+
+fn ldpc_create(n, k, H) {
+    // Create LDPC code
+    return {
+        n: n,  // Code length
+        k: k,  // Data length
+        H: H   // Parity check matrix
+    };
+}
+
+fn ldpc_decode(code, received, iterations) {
+    // LDPC belief propagation decoding
+    // TODO: Implement belief propagation
+    return received;
+}
+
+// ===== CHANNEL CAPACITY =====
+
+fn channel_capacity_bsc(p) {
+    // Binary symmetric channel capacity
+    // C = 1 - H(p)
+    return 1.0 - entropy_shannon([p, 1.0 - p]);
+}
+
+fn channel_capacity_awgn(snr) {
+    // AWGN channel capacity
+    // C = (1/2) log2(1 + SNR)
+    return 0.5 * log2(1.0 + snr);
+}
+
+// ===== SOURCE CODING =====
+
+fn source_lempel_ziv(data) {
+    // Lempel-Ziv compression
+    let dictionary = {};
+    let compressed = [];
+    let w = "";
+    let dictSize = 256;
+    
+    // Initialize dictionary
+    let i = 0;
+    while (i < 256) {
+        dictionary[str_fromCharCode(i)] = i;
+        i = i + 1;
+    }
+    
+    // Compress
+    i = 0;
+    while (i < length(data)) {
+        let c = charAt(data, i);
+        let wc = w + c;
+        
+        if (obj_has(dictionary, wc)) {
+            w = wc;
+        } else {
+            arr_push(compressed, dictionary[w]);
+            dictionary[wc] = dictSize;
+            dictSize = dictSize + 1;
+            w = c;
+        }
+        
+        i = i + 1;
+    }
+    
+    if (w != "") {
+        arr_push(compressed, dictionary[w]);
+    }
+    
+    return compressed;
+}
+
+// ===== RATE-DISTORTION THEORY =====
+
+fn ratedistortion_compute(source, distortion) {
+    // Rate-distortion function R(D)
+    // TODO: Implement rate-distortion computation
+    return 0.0;
+}

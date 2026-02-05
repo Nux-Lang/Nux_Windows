@@ -1,0 +1,53 @@
+# AI/ML Demo - Simple Neural Network
+# Demonstrates AI capabilities using Nux's ML libraries
+
+import "std.io";
+import "ai.neural";
+import "std.math";
+
+func main() {
+    println("=== Nux AI/ML Demo ===");
+    println("Training a simple neural network...\n");
+    
+    # Create a simple feedforward network
+    var network = new NeuralNetwork();
+    network.add_layer(2, "input");      # 2 input neurons
+    network.add_layer(4, "hidden");     # 4 hidden neurons
+    network.add_layer(1, "output");     # 1 output neuron
+    
+    # XOR training data
+    var training_data = [
+        [[0, 0], [0]],
+        [[0, 1], [1]],
+        [[1, 0], [1]],
+        [[1, 1], [0]]
+    ];
+    
+    # Train the network
+    println("Training on XOR problem...");
+    for (var epoch = 0; epoch < 1000; epoch = epoch + 1) {
+        var total_loss = 0.0;
+        
+        for (var i = 0; i < len(training_data); i = i + 1) {
+            var input = training_data[i][0];
+            var target = training_data[i][1];
+            
+            var output = network.forward(input);
+            var loss = network.backward(target);
+            total_loss = total_loss + loss;
+        }
+        
+        if (epoch % 100 == 0) {
+            println("Epoch " + str(epoch) + ", Loss: " + str(total_loss / 4.0));
+        }
+    }
+    
+    # Test the trained network
+    println("\n=== Testing ===");
+    println("0 XOR 0 = " + str(network.predict([0, 0])[0]));
+    println("0 XOR 1 = " + str(network.predict([0, 1])[0]));
+    println("1 XOR 0 = " + str(network.predict([1, 0])[0]));
+    println("1 XOR 1 = " + str(network.predict([1, 1])[0]));
+}
+
+main();

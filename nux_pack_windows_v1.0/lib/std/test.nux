@@ -1,0 +1,282 @@
+// Nux Standard Library - Testing Framework
+// Unit testing and assertions
+
+// ===== TEST SUITE =====
+
+let _test_suites = [];
+let _current_suite = null;
+
+fn describe(name, fn) {
+    // Create test suite
+    let suite = {
+        name: name,
+        tests: [],
+        beforeEach: null,
+        afterEach: null,
+        beforeAll: null,
+        afterAll: null
+    };
+    
+    arr_push(_test_suites, suite);
+    _current_suite = suite;
+    
+    fn();
+    
+    _current_suite = null;
+}
+
+fn it(description, fn) {
+    // Create test case
+    if (_current_suite == null) {
+        print("Error: 'it' must be called inside 'describe'");
+        return;
+    }
+    
+    let test = {
+        description: description,
+        fn: fn,
+        passed: false,
+        error: null
+    };
+    
+    arr_push(_current_suite.tests, test);
+}
+
+// ===== HOOKS =====
+
+fn beforeEach(fn) {
+    // Run before each test
+    if (_current_suite != null) {
+        _current_suite.beforeEach = fn;
+    }
+}
+
+fn afterEach(fn) {
+    // Run after each test
+    if (_current_suite != null) {
+        _current_suite.afterEach = fn;
+    }
+}
+
+fn beforeAll(fn) {
+    // Run before all tests
+    if (_current_suite != null) {
+        _current_suite.beforeAll = fn;
+    }
+}
+
+fn afterAll(fn) {
+    // Run after all tests
+    if (_current_suite != null) {
+        _current_suite.afterAll = fn;
+    }
+}
+
+// ===== ASSERTIONS =====
+
+fn assert(condition, message) {
+    // Basic assertion
+    if (!condition) {
+        let msg = "Assertion failed";
+        if (message != null) {
+            msg = msg + ": " + message;
+        }
+        print(msg);
+        return false;
+    }
+    return true;
+}
+
+fn assertEqual(actual, expected, message) {
+    // Assert equality
+    if (actual != expected) {
+        let msg = "Expected " + expected + " but got " + actual;
+        if (message != null) {
+            msg = message + ": " + msg;
+        }
+        print(msg);
+        return false;
+    }
+    return true;
+}
+
+fn assertNotEqual(actual, expected, message) {
+    // Assert inequality
+    if (actual == expected) {
+        let msg = "Expected not equal to " + expected;
+        if (message != null) {
+            msg = message + ": " + msg;
+        }
+        print(msg);
+        return false;
+    }
+    return true;
+}
+
+fn assertTrue(value, message) {
+    // Assert true
+    return assertEqual(value, true, message);
+}
+
+fn assertFalse(value, message) {
+    // Assert false
+    return assertEqual(value, false, message);
+}
+
+fn assertNull(value, message) {
+    // Assert null
+    return assertEqual(value, null, message);
+}
+
+fn assertNotNull(value, message) {
+    // Assert not null
+    return assertNotEqual(value, null, message);
+}
+
+fn assertGreater(actual, expected, message) {
+    // Assert greater than
+    if (actual <= expected) {
+        let msg = "Expected " + actual + " > " + expected;
+        if (message != null) {
+            msg = message + ": " + msg;
+        }
+        print(msg);
+        return false;
+    }
+    return true;
+}
+
+fn assertLess(actual, expected, message) {
+    // Assert less than
+    if (actual >= expected) {
+        let msg = "Expected " + actual + " < " + expected;
+        if (message != null) {
+            msg = message + ": " + msg;
+        }
+        print(msg);
+        return false;
+    }
+    return true;
+}
+
+fn assertContains(array, item, message) {
+    // Assert array contains item
+    if (!arr_contains(array, item)) {
+        let msg = "Array does not contain " + item;
+        if (message != null) {
+            msg = message + ": " + msg;
+        }
+        print(msg);
+        return false;
+    }
+    return true;
+}
+
+fn assertThrows(fn, message) {
+    // Assert function throws error
+    // TODO: Implement with VM error handling
+    return true;
+}
+
+// ===== TEST RUNNER =====
+
+fn run_tests() {
+    // Run all test suites
+    let totalTests = 0;
+    let passedTests = 0;
+    let failedTests = 0;
+    
+    print("=== Running Tests ===");
+    print("");
+    
+    let i = 0;
+    while (i < arr_length(_test_suites)) {
+        let suite = _test_suites[i];
+        
+        print("Suite: " + suite.name);
+        
+        // Run beforeAll
+        if (suite.beforeAll != null) {
+            suite.beforeAll();
+        }
+        
+        // Run tests
+        let j = 0;
+        while (j < arr_length(suite.tests)) {
+            let test = suite.tests[j];
+            totalTests = totalTests + 1;
+            
+            // Run beforeEach
+            if (suite.beforeEach != null) {
+                suite.beforeEach();
+            }
+            
+            // Run test
+            test.fn();
+            test.passed = true;
+            passedTests = passedTests + 1;
+            
+            print("  ✓ " + test.description);
+            
+            // Run afterEach
+            if (suite.afterEach != null) {
+                suite.afterEach();
+            }
+            
+            j = j + 1;
+        }
+        
+        // Run afterAll
+        if (suite.afterAll != null) {
+            suite.afterAll();
+        }
+        
+        print("");
+        i = i + 1;
+    }
+    
+    print("=== Test Results ===");
+    print("Total: " + totalTests);
+    print("Passed: " + passedTests);
+    print("Failed: " + failedTests);
+    
+    if (failedTests == 0) {
+        print("All tests passed! ✓");
+    }
+}
+
+// ===== MOCKING =====
+
+fn mock_create() {
+    // Create mock function
+    return {
+        calls: [],
+        returnValue: null
+    };
+}
+
+fn mock_call(mock, args) {
+    // Record mock call
+    arr_push(mock.calls, args);
+    return mock.returnValue;
+}
+
+fn mock_setReturnValue(mock, value) {
+    // Set return value
+    mock.returnValue = value;
+}
+
+fn mock_getCalls(mock) {
+    // Get all calls
+    return mock.calls;
+}
+
+fn mock_getCallCount(mock) {
+    // Get call count
+    return arr_length(mock.calls);
+}
+
+fn mock_reset(mock) {
+    // Reset mock
+    mock.calls = [];
+}

@@ -1,0 +1,1059 @@
+# Nux Game Engine Library
+# Full game engine with ECS, input, audio, resources, and scenes
+
+import "std.gfxdriver";
+import "std.audio";
+
+# ============================================================
+# ENTITY COMPONENT SYSTEM (ECS)
+# ============================================================
+
+class Entity {
+    var id;
+    var components;
+    var tags;
+    var active;
+    var world;
+    
+    func init(entity_id, world_ref) {
+        this.id = entity_id;
+        this.world = world_ref;
+        this.components = new Map();
+        this.components.init();
+        this.tags = new List();
+        this.tags.init();
+        this.active = 1;
+    }
+    
+    func add_component(component_type, component) {
+        this.components.put(component_type, component);
+        component.entity = this;
+        return component;
+    }
+    
+    func get_component(component_type) {
+        return this.components.get(component_type);
+    }
+    
+    func has_component(component_type) {
+        return this.components.has(component_type);
+    }
+    
+    func remove_component(component_type) {
+        this.components.remove(component_type);
+    }
+    
+    func add_tag(tag) {
+        this.tags.append(tag);
+    }
+    
+    func has_tag(tag) {
+        var i = 0;
+        for (i = 0; i < this.tags.length(); i = i + 1) {
+            if (this.tags.get(i) == tag) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+    
+    func destroy() {
+        this.active = 0;
+        this.world.remove_entity(this.id);
+    }
+}
+
+class Component {
+    var entity;
+    var enabled;
+    
+    func init() {
+        this.enabled = 1;
+    }
+    
+    func on_attach() {}
+    func on_detach() {}
+}
+
+class System {
+    var world;
+    var priority;
+    var enabled;
+    
+    func init(world_ref, prio) {
+        this.world = world_ref;
+        this.priority = prio;
+        this.enabled = 1;
+    }
+    
+    func update(dt) {}
+    func render() {}
+    
+    func get_entities_with(component_types) {
+        return this.world.query(component_types);
+    }
+}
+
+class World {
+    var entities;
+    var systems;
+    var next_entity_id;
+    var entity_pool;
+    
+    func init() {
+        this.entities = new Map();
+        this.entities.init();
+        this.systems = new List();
+        this.systems.init();
+        this.next_entity_id = 1;
+        this.entity_pool = new List();
+        this.entity_pool.init();
+    }
+    
+    func create_entity() {
+        var entity = new Entity();
+        entity.init(this.next_entity_id, this);
+        this.entities.put(this.next_entity_id, entity);
+        this.next_entity_id = this.next_entity_id + 1;
+        return entity;
+    }
+    
+    func get_entity(id) {
+        return this.entities.get(id);
+    }
+    
+    func remove_entity(id) {
+        this.entities.remove(id);
+    }
+    
+    func add_system(system) {
+        this.systems.append(system);
+        # Sort by priority
+        this.sort_systems();
+    }
+    
+    func sort_systems() {
+        # Simple bubble sort for systems by priority
+        var n = this.systems.length();
+        var i = 0;
+        for (i = 0; i < n - 1; i = i + 1) {
+            var j = 0;
+            for (j = 0; j < n - i - 1; j = j + 1) {
+                var sys_a = this.systems.get(j);
+                var sys_b = this.systems.get(j + 1);
+                if (sys_a.priority > sys_b.priority) {
+                    this.systems.set(j, sys_b);
+                    this.systems.set(j + 1, sys_a);
+                }
+            }
+        }
+    }
+    
+    func query(component_types) {
+        var results = new List();
+        results.init();
+        
+        var keys = this.entities.keys();
+        var i = 0;
+        for (i = 0; i < keys.length(); i = i + 1) {
+            var entity = this.entities.get(keys.get(i));
+            if (entity.active == 1) {
+                var has_all = 1;
+                var j = 0;
+                for (j = 0; j < component_types.length(); j = j + 1) {
+                    if (entity.has_component(component_types.get(j)) == 0) {
+                        has_all = 0;
+                        break;
+                    }
+                }
+                if (has_all == 1) {
+                    results.append(entity);
+                }
+            }
+        }
+        
+        return results;
+    }
+    
+    func update(dt) {
+        var i = 0;
+        for (i = 0; i < this.systems.length(); i = i + 1) {
+            var system = this.systems.get(i);
+            if (system.enabled == 1) {
+                system.update(dt);
+            }
+        }
+    }
+    
+    func render() {
+        var i = 0;
+        for (i = 0; i < this.systems.length(); i = i + 1) {
+            var system = this.systems.get(i);
+            if (system.enabled == 1) {
+                system.render();
+            }
+        }
+    }
+}
+
+# ============================================================
+# COMMON COMPONENTS
+# ============================================================
+
+class TransformComponent {
+    var entity;
+    var x;
+    var y;
+    var z;
+    var rotation;
+    var scale_x;
+    var scale_y;
+    var parent;
+    
+    func init(pos_x, pos_y) {
+        this.x = pos_x;
+        this.y = pos_y;
+        this.z = 0;
+        this.rotation = 0;
+        this.scale_x = 1;
+        this.scale_y = 1;
+        this.parent = 0;
+    }
+    
+    func set_position(px, py) {
+        this.x = px;
+        this.y = py;
+    }
+    
+    func translate(dx, dy) {
+        this.x = this.x + dx;
+        this.y = this.y + dy;
+    }
+    
+    func get_world_position() {
+        if (this.parent != 0) {
+            var parent_pos = this.parent.get_world_position();
+            return new Vector2(this.x + parent_pos.x, this.y + parent_pos.y);
+        }
+        return new Vector2(this.x, this.y);
+    }
+}
+
+class SpriteComponent {
+    var entity;
+    var texture_id;
+    var width;
+    var height;
+    var color;
+    var flip_x;
+    var flip_y;
+    var layer;
+    var visible;
+    
+    func init(tex_id, w, h) {
+        this.texture_id = tex_id;
+        this.width = w;
+        this.height = h;
+        this.color = 0xFFFFFF;
+        this.flip_x = 0;
+        this.flip_y = 0;
+        this.layer = 0;
+        this.visible = 1;
+    }
+}
+
+class VelocityComponent {
+    var entity;
+    var vx;
+    var vy;
+    var angular_velocity;
+    
+    func init(vel_x, vel_y) {
+        this.vx = vel_x;
+        this.vy = vel_y;
+        this.angular_velocity = 0;
+    }
+}
+
+class ColliderComponent {
+    var entity;
+    var shape_type;
+    var width;
+    var height;
+    var radius;
+    var offset_x;
+    var offset_y;
+    var is_trigger;
+    var collision_layer;
+    var collision_mask;
+    
+    func init_box(w, h) {
+        this.shape_type = "box";
+        this.width = w;
+        this.height = h;
+        this.offset_x = 0;
+        this.offset_y = 0;
+        this.is_trigger = 0;
+        this.collision_layer = 1;
+        this.collision_mask = 1;
+    }
+    
+    func init_circle(r) {
+        this.shape_type = "circle";
+        this.radius = r;
+        this.offset_x = 0;
+        this.offset_y = 0;
+        this.is_trigger = 0;
+        this.collision_layer = 1;
+        this.collision_mask = 1;
+    }
+}
+
+class ScriptComponent {
+    var entity;
+    var scripts;
+    
+    func init() {
+        this.scripts = new List();
+        this.scripts.init();
+    }
+    
+    func add_script(script) {
+        script.entity = this.entity;
+        this.scripts.append(script);
+    }
+    
+    func update(dt) {
+        var i = 0;
+        for (i = 0; i < this.scripts.length(); i = i + 1) {
+            this.scripts.get(i).update(dt);
+        }
+    }
+}
+
+# ============================================================
+# INPUT MANAGER
+# ============================================================
+
+class InputManager {
+    var keys_down;
+    var keys_pressed;
+    var keys_released;
+    var mouse_x;
+    var mouse_y;
+    var mouse_buttons;
+    var mouse_buttons_pressed;
+    var scroll_delta;
+    var gamepad_buttons;
+    var gamepad_axes;
+    
+    func init() {
+        this.keys_down = new Map();
+        this.keys_down.init();
+        this.keys_pressed = new Map();
+        this.keys_pressed.init();
+        this.keys_released = new Map();
+        this.keys_released.init();
+        this.mouse_x = 0;
+        this.mouse_y = 0;
+        this.mouse_buttons = 0;
+        this.mouse_buttons_pressed = 0;
+        this.scroll_delta = 0;
+        this.gamepad_buttons = 0;
+        this.gamepad_axes = new List();
+        this.gamepad_axes.init();
+    }
+    
+    func update() {
+        # Clear pressed/released states
+        this.keys_pressed.clear();
+        this.keys_released.clear();
+        this.mouse_buttons_pressed = 0;
+        this.scroll_delta = 0;
+    }
+    
+    func on_key_down(keycode) {
+        if (this.keys_down.has(keycode) == 0) {
+            this.keys_pressed.put(keycode, 1);
+        }
+        this.keys_down.put(keycode, 1);
+    }
+    
+    func on_key_up(keycode) {
+        this.keys_down.remove(keycode);
+        this.keys_released.put(keycode, 1);
+    }
+    
+    func is_key_down(keycode) {
+        return this.keys_down.has(keycode);
+    }
+    
+    func is_key_pressed(keycode) {
+        return this.keys_pressed.has(keycode);
+    }
+    
+    func is_key_released(keycode) {
+        return this.keys_released.has(keycode);
+    }
+    
+    func on_mouse_move(x, y) {
+        this.mouse_x = x;
+        this.mouse_y = y;
+    }
+    
+    func on_mouse_button_down(button) {
+        this.mouse_buttons = this.mouse_buttons | (1 << button);
+        this.mouse_buttons_pressed = this.mouse_buttons_pressed | (1 << button);
+    }
+    
+    func on_mouse_button_up(button) {
+        this.mouse_buttons = this.mouse_buttons & ~(1 << button);
+    }
+    
+    func is_mouse_button_down(button) {
+        return (this.mouse_buttons & (1 << button)) != 0;
+    }
+    
+    func get_mouse_position() {
+        var pos = new Vector2();
+        pos.init(this.mouse_x, this.mouse_y);
+        return pos;
+    }
+    
+    func get_axis(axis_name) {
+        var value = 0;
+        if (axis_name == "horizontal") {
+            if (this.is_key_down(65)) { value = value - 1; } # A
+            if (this.is_key_down(68)) { value = value + 1; } # D
+            if (this.is_key_down(37)) { value = value - 1; } # Left
+            if (this.is_key_down(39)) { value = value + 1; } # Right
+        }
+        if (axis_name == "vertical") {
+            if (this.is_key_down(87)) { value = value - 1; } # W
+            if (this.is_key_down(83)) { value = value + 1; } # S
+            if (this.is_key_down(38)) { value = value - 1; } # Up
+            if (this.is_key_down(40)) { value = value + 1; } # Down
+        }
+        return value;
+    }
+}
+
+# Key constants
+var KEY_SPACE = 32;
+var KEY_ENTER = 13;
+var KEY_ESCAPE = 27;
+var KEY_LEFT = 37;
+var KEY_UP = 38;
+var KEY_RIGHT = 39;
+var KEY_DOWN = 40;
+var KEY_A = 65;
+var KEY_D = 68;
+var KEY_S = 83;
+var KEY_W = 87;
+
+# ============================================================
+# AUDIO MANAGER
+# ============================================================
+
+class AudioManager {
+    var sounds;
+    var music;
+    var master_volume;
+    var sfx_volume;
+    var music_volume;
+    var sound_pool;
+    
+    func init() {
+        this.sounds = new Map();
+        this.sounds.init();
+        this.music = 0;
+        this.master_volume = 1;
+        this.sfx_volume = 1;
+        this.music_volume = 0.7;
+        this.sound_pool = new List();
+        this.sound_pool.init();
+    }
+    
+    func load_sound(name, path) {
+        # Store sound reference
+        this.sounds.put(name, path);
+    }
+    
+    func play_sound(name) {
+        if (this.sounds.has(name)) {
+            var volume = this.master_volume * this.sfx_volume;
+            # Play sound through audio driver
+            # audio_play(this.sounds.get(name), volume);
+        }
+    }
+    
+    func play_sound_at(name, x, y, listener_x, listener_y) {
+        # 3D positional audio
+        var dx = x - listener_x;
+        var dy = y - listener_y;
+        var distance = sqrt(dx * dx + dy * dy);
+        var max_distance = 1000;
+        var volume = 1 - (distance / max_distance);
+        if (volume < 0) { volume = 0; }
+        
+        var pan = dx / max_distance;
+        if (pan < -1) { pan = -1; }
+        if (pan > 1) { pan = 1; }
+        
+        # Play with volume and panning
+        # audio_play_spatial(this.sounds.get(name), volume, pan);
+    }
+    
+    func play_music(path) {
+        this.music = path;
+        # audio_play_music(path, this.master_volume * this.music_volume);
+    }
+    
+    func stop_music() {
+        # audio_stop_music();
+        this.music = 0;
+    }
+    
+    func set_master_volume(vol) {
+        this.master_volume = vol;
+    }
+}
+
+# ============================================================
+# RESOURCE MANAGER
+# ============================================================
+
+class Resource {
+    var id;
+    var path;
+    var type;
+    var data;
+    var ref_count;
+    var loaded;
+    
+    func init(res_id, res_path, res_type) {
+        this.id = res_id;
+        this.path = res_path;
+        this.type = res_type;
+        this.ref_count = 0;
+        this.loaded = 0;
+    }
+}
+
+class ResourceManager {
+    var resources;
+    var next_id;
+    var cache_size;
+    var max_cache_size;
+    
+    func init() {
+        this.resources = new Map();
+        this.resources.init();
+        this.next_id = 1;
+        this.cache_size = 0;
+        this.max_cache_size = 1024 * 1024 * 100; # 100MB
+    }
+    
+    func load(path, res_type) {
+        # Check if already loaded
+        if (this.resources.has(path)) {
+            var res = this.resources.get(path);
+            res.ref_count = res.ref_count + 1;
+            return res;
+        }
+        
+        # Create new resource
+        var resource = new Resource();
+        resource.init(this.next_id, path, res_type);
+        this.next_id = this.next_id + 1;
+        
+        # Load based on type
+        if (res_type == "texture") {
+            # Load texture data
+            resource.loaded = 1;
+        }
+        if (res_type == "sound") {
+            # Load sound data
+            resource.loaded = 1;
+        }
+        if (res_type == "font") {
+            # Load font data
+            resource.loaded = 1;
+        }
+        
+        resource.ref_count = 1;
+        this.resources.put(path, resource);
+        
+        return resource;
+    }
+    
+    func unload(path) {
+        if (this.resources.has(path)) {
+            var res = this.resources.get(path);
+            res.ref_count = res.ref_count - 1;
+            if (res.ref_count <= 0) {
+                this.resources.remove(path);
+            }
+        }
+    }
+    
+    func get(path) {
+        return this.resources.get(path);
+    }
+    
+    func preload(paths) {
+        var i = 0;
+        for (i = 0; i < paths.length(); i = i + 1) {
+            var entry = paths.get(i);
+            this.load(entry.path, entry.type);
+        }
+    }
+    
+    func clear_unused() {
+        var keys = this.resources.keys();
+        var i = 0;
+        for (i = 0; i < keys.length(); i = i + 1) {
+            var res = this.resources.get(keys.get(i));
+            if (res.ref_count <= 0) {
+                this.resources.remove(keys.get(i));
+            }
+        }
+    }
+}
+
+# ============================================================
+# SCENE MANAGER
+# ============================================================
+
+class Scene {
+    var name;
+    var world;
+    var initialized;
+    var paused;
+    
+    func init(scene_name) {
+        this.name = scene_name;
+        this.world = new World();
+        this.world.init();
+        this.initialized = 0;
+        this.paused = 0;
+    }
+    
+    func on_enter() {
+        this.initialized = 1;
+    }
+    
+    func on_exit() {}
+    
+    func on_pause() {
+        this.paused = 1;
+    }
+    
+    func on_resume() {
+        this.paused = 0;
+    }
+    
+    func update(dt) {
+        if (this.paused == 0) {
+            this.world.update(dt);
+        }
+    }
+    
+    func render() {
+        this.world.render();
+    }
+}
+
+class SceneManager {
+    var scenes;
+    var scene_stack;
+    var current_scene;
+    var transition;
+    var transition_progress;
+    
+    func init() {
+        this.scenes = new Map();
+        this.scenes.init();
+        this.scene_stack = new List();
+        this.scene_stack.init();
+        this.current_scene = 0;
+        this.transition = 0;
+        this.transition_progress = 0;
+    }
+    
+    func register_scene(name, scene) {
+        this.scenes.put(name, scene);
+    }
+    
+    func load_scene(name) {
+        if (this.current_scene != 0) {
+            this.current_scene.on_exit();
+        }
+        
+        this.current_scene = this.scenes.get(name);
+        this.current_scene.on_enter();
+    }
+    
+    func push_scene(name) {
+        if (this.current_scene != 0) {
+            this.current_scene.on_pause();
+            this.scene_stack.append(this.current_scene);
+        }
+        
+        this.current_scene = this.scenes.get(name);
+        this.current_scene.on_enter();
+    }
+    
+    func pop_scene() {
+        if (this.scene_stack.length() > 0) {
+            this.current_scene.on_exit();
+            this.current_scene = this.scene_stack.pop();
+            this.current_scene.on_resume();
+        }
+    }
+    
+    func update(dt) {
+        if (this.current_scene != 0) {
+            this.current_scene.update(dt);
+        }
+    }
+    
+    func render() {
+        if (this.current_scene != 0) {
+            this.current_scene.render();
+        }
+    }
+}
+
+# ============================================================
+# GAME LOOP
+# ============================================================
+
+class GameEngine {
+    var running;
+    var target_fps;
+    var fixed_timestep;
+    var delta_time;
+    var time_accumulator;
+    var frame_count;
+    var fps;
+    var last_fps_time;
+    var input;
+    var audio;
+    var resources;
+    var scenes;
+    var screen_width;
+    var screen_height;
+    
+    func init(width, height, title) {
+        this.running = 0;
+        this.target_fps = 60;
+        this.fixed_timestep = 1 / 60;
+        this.delta_time = 0;
+        this.time_accumulator = 0;
+        this.frame_count = 0;
+        this.fps = 0;
+        this.last_fps_time = 0;
+        this.screen_width = width;
+        this.screen_height = height;
+        
+        this.input = new InputManager();
+        this.input.init();
+        
+        this.audio = new AudioManager();
+        this.audio.init();
+        
+        this.resources = new ResourceManager();
+        this.resources.init();
+        
+        this.scenes = new SceneManager();
+        this.scenes.init();
+    }
+    
+    func run() {
+        this.running = 1;
+        var last_time = rdtsc();
+        
+        while (this.running == 1) {
+            var current_time = rdtsc();
+            var elapsed = (current_time - last_time) / 1000000; # Convert to ms
+            last_time = current_time;
+            
+            this.delta_time = elapsed / 1000; # Convert to seconds
+            if (this.delta_time > 0.25) {
+                this.delta_time = 0.25; # Cap delta time
+            }
+            
+            # Process input
+            this.input.update();
+            
+            # Fixed timestep updates
+            this.time_accumulator = this.time_accumulator + this.delta_time;
+            while (this.time_accumulator >= this.fixed_timestep) {
+                this.fixed_update(this.fixed_timestep);
+                this.time_accumulator = this.time_accumulator - this.fixed_timestep;
+            }
+            
+            # Variable timestep update
+            this.update(this.delta_time);
+            
+            # Render
+            this.render();
+            
+            # FPS counter
+            this.frame_count = this.frame_count + 1;
+            if (current_time - this.last_fps_time >= 1000000) {
+                this.fps = this.frame_count;
+                this.frame_count = 0;
+                this.last_fps_time = current_time;
+            }
+        }
+    }
+    
+    func fixed_update(dt) {
+        # Physics and fixed-rate logic
+    }
+    
+    func update(dt) {
+        this.scenes.update(dt);
+    }
+    
+    func render() {
+        this.scenes.render();
+    }
+    
+    func quit() {
+        this.running = 0;
+    }
+    
+    func get_fps() {
+        return this.fps;
+    }
+}
+
+# ============================================================
+# PREFAB SYSTEM
+# ============================================================
+
+class Prefab {
+    var name;
+    var components;
+    
+    func init(prefab_name) {
+        this.name = prefab_name;
+        this.components = new List();
+        this.components.init();
+    }
+    
+    func add_component(component_type, config) {
+        var entry = new Map();
+        entry.init();
+        entry.put("type", component_type);
+        entry.put("config", config);
+        this.components.append(entry);
+    }
+    
+    func instantiate(world) {
+        var entity = world.create_entity();
+        
+        var i = 0;
+        for (i = 0; i < this.components.length(); i = i + 1) {
+            var entry = this.components.get(i);
+            var comp_type = entry.get("type");
+            var config = entry.get("config");
+            
+            # Create component based on type
+            if (comp_type == "transform") {
+                var t = new TransformComponent();
+                t.init(config.x, config.y);
+                entity.add_component("transform", t);
+            }
+            if (comp_type == "sprite") {
+                var s = new SpriteComponent();
+                s.init(config.texture, config.width, config.height);
+                entity.add_component("sprite", s);
+            }
+            if (comp_type == "velocity") {
+                var v = new VelocityComponent();
+                v.init(config.vx, config.vy);
+                entity.add_component("velocity", v);
+            }
+        }
+        
+        return entity;
+    }
+}
+
+# ============================================================
+# COMMON SYSTEMS
+# ============================================================
+
+class MovementSystem {
+    var world;
+    var priority;
+    var enabled;
+    
+    func init(world_ref) {
+        this.world = world_ref;
+        this.priority = 10;
+        this.enabled = 1;
+    }
+    
+    func update(dt) {
+        var query = new List();
+        query.init();
+        query.append("transform");
+        query.append("velocity");
+        
+        var entities = this.world.query(query);
+        var i = 0;
+        for (i = 0; i < entities.length(); i = i + 1) {
+            var entity = entities.get(i);
+            var transform = entity.get_component("transform");
+            var velocity = entity.get_component("velocity");
+            
+            transform.x = transform.x + velocity.vx * dt;
+            transform.y = transform.y + velocity.vy * dt;
+            transform.rotation = transform.rotation + velocity.angular_velocity * dt;
+        }
+    }
+}
+
+class RenderSystem {
+    var world;
+    var priority;
+    var enabled;
+    var framebuffer;
+    
+    func init(world_ref, fb) {
+        this.world = world_ref;
+        this.priority = 100;
+        this.enabled = 1;
+        this.framebuffer = fb;
+    }
+    
+    func render() {
+        var query = new List();
+        query.init();
+        query.append("transform");
+        query.append("sprite");
+        
+        var entities = this.world.query(query);
+        
+        # Sort by layer
+        # ... (sorting logic)
+        
+        var i = 0;
+        for (i = 0; i < entities.length(); i = i + 1) {
+            var entity = entities.get(i);
+            var transform = entity.get_component("transform");
+            var sprite = entity.get_component("sprite");
+            
+            if (sprite.visible == 1) {
+                this.framebuffer.fill_rect(
+                    transform.x,
+                    transform.y,
+                    sprite.width,
+                    sprite.height,
+                    sprite.color
+                );
+            }
+        }
+    }
+}
+
+class CollisionSystem {
+    var world;
+    var priority;
+    var enabled;
+    var collision_callbacks;
+    
+    func init(world_ref) {
+        this.world = world_ref;
+        this.priority = 20;
+        this.enabled = 1;
+        this.collision_callbacks = new List();
+        this.collision_callbacks.init();
+    }
+    
+    func update(dt) {
+        var query = new List();
+        query.init();
+        query.append("transform");
+        query.append("collider");
+        
+        var entities = this.world.query(query);
+        
+        # Broad phase - check all pairs
+        var i = 0;
+        for (i = 0; i < entities.length(); i = i + 1) {
+            var j = i + 1;
+            for (j = i + 1; j < entities.length(); j = j + 1) {
+                var entity_a = entities.get(i);
+                var entity_b = entities.get(j);
+                
+                if (this.check_collision(entity_a, entity_b)) {
+                    this.on_collision(entity_a, entity_b);
+                }
+            }
+        }
+    }
+    
+    func check_collision(entity_a, entity_b) {
+        var t_a = entity_a.get_component("transform");
+        var c_a = entity_a.get_component("collider");
+        var t_b = entity_b.get_component("transform");
+        var c_b = entity_b.get_component("collider");
+        
+        # Layer mask check
+        if ((c_a.collision_mask & c_b.collision_layer) == 0) {
+            return 0;
+        }
+        
+        # AABB collision for boxes
+        if (c_a.shape_type == "box" && c_b.shape_type == "box") {
+            var a_left = t_a.x + c_a.offset_x;
+            var a_right = a_left + c_a.width;
+            var a_top = t_a.y + c_a.offset_y;
+            var a_bottom = a_top + c_a.height;
+            
+            var b_left = t_b.x + c_b.offset_x;
+            var b_right = b_left + c_b.width;
+            var b_top = t_b.y + c_b.offset_y;
+            var b_bottom = b_top + c_b.height;
+            
+            if (a_right > b_left && a_left < b_right &&
+                a_bottom > b_top && a_top < b_bottom) {
+                return 1;
+            }
+        }
+        
+        # Circle collision
+        if (c_a.shape_type == "circle" && c_b.shape_type == "circle") {
+            var dx = (t_a.x + c_a.offset_x) - (t_b.x + c_b.offset_x);
+            var dy = (t_a.y + c_a.offset_y) - (t_b.y + c_b.offset_y);
+            var dist_sq = dx * dx + dy * dy;
+            var radius_sum = c_a.radius + c_b.radius;
+            
+            if (dist_sq < radius_sum * radius_sum) {
+                return 1;
+            }
+        }
+        
+        return 0;
+    }
+    
+    func on_collision(entity_a, entity_b) {
+        # Trigger callbacks
+        var i = 0;
+        for (i = 0; i < this.collision_callbacks.length(); i = i + 1) {
+            var callback = this.collision_callbacks.get(i);
+            callback(entity_a, entity_b);
+        }
+    }
+    
+    func add_callback(callback) {
+        this.collision_callbacks.append(callback);
+    }
+}
+

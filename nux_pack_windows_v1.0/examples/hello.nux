@@ -1,0 +1,29 @@
+# Hello World in Nux
+# This is a simple example to get you started with Nux programming
+
+# Import the standard I/O library
+import "std.io";
+
+# Define the main function
+func main() {
+    # Print a greeting message
+    println("Hello, World!");
+    println("Welcome to Nux Programming Language!");
+    
+    # Variables and basic operations
+    var name = "Nux Developer";
+    var version = "1.0.0";
+    
+    println("You are using Nux v" + version);
+    println("Happy coding, " + name + "!");
+    
+    # Simple arithmetic
+    var x = 10;
+    var y = 20;
+    var sum = x + y;
+    
+    println("10 + 20 = " + str(sum));
+}
+
+# Run the main function
+main();

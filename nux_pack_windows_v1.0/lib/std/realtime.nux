@@ -1,0 +1,376 @@
+// Nux Standard Library - Real-Time Systems
+// Hard real-time scheduling, deterministic execution, and timing guarantees
+
+// ===== REAL-TIME TASK =====
+
+fn rttask_create(name, period, deadline, wcet) {
+    // Create real-time task
+    // wcet = Worst-Case Execution Time
+    return {
+        name: name,
+        period: period,        // Microseconds
+        deadline: deadline,    // Microseconds
+        wcet: wcet,           // Microseconds
+        priority: 0,
+        nextRelease: 0,
+        lastExecution: 0
+    };
+}
+
+// ===== RATE MONOTONIC SCHEDULING (RMS) =====
+
+fn rms_assignPriorities(tasks) {
+    // Assign priorities based on period (shorter period = higher priority)
+    let sorted = arr_sort(tasks, fn(a, b) {
+        return a.period - b.period;
+    });
+    
+    let i = 0;
+    while (i < arr_length(sorted)) {
+        sorted[i].priority = arr_length(sorted) - i;
+        i = i + 1;
+    }
+    
+    return sorted;
+}
+
+fn rms_isSchedulable(tasks) {
+    // Check if task set is schedulable using RMS
+    let n = arr_length(tasks);
+    let utilization = 0;
+    
+    let i = 0;
+    while (i < n) {
+        utilization = utilization + (tasks[i].wcet / tasks[i].period);
+        i = i + 1;
+    }
+    
+    // Liu & Layland bound
+    let bound = n * (pow(2, 1.0 / n) - 1);
+    
+    return utilization <= bound;
+}
+
+// ===== EARLIEST DEADLINE FIRST (EDF) =====
+
+fn edf_schedule(tasks, currentTime) {
+    // Schedule task with earliest absolute deadline
+    let ready = arr_filter(tasks, fn(task) {
+        return task.nextRelease <= currentTime;
+    });
+    
+    if (arr_length(ready) == 0) {
+        return null;
+    }
+    
+    // Sort by absolute deadline
+    let sorted = arr_sort(ready, fn(a, b) {
+        let deadlineA = a.nextRelease + a.deadline;
+        let deadlineB = b.nextRelease + b.deadline;
+        return deadlineA - deadlineB;
+    });
+    
+    return sorted[0];
+}
+
+fn edf_isSchedulable(tasks) {
+    // Check if task set is schedulable using EDF
+    let utilization = 0;
+    
+    let i = 0;
+    while (i < arr_length(tasks)) {
+        utilization = utilization + (tasks[i].wcet / tasks[i].period);
+        i = i + 1;
+    }
+    
+    return utilization <= 1.0;
+}
+
+// ===== PRIORITY CEILING PROTOCOL =====
+
+fn pcp_create() {
+    // Create priority ceiling protocol manager
+    return {
+        resources: {},
+        systemCeiling: 0
+    };
+}
+
+fn pcp_addResource(pcp, resourceId, ceiling) {
+    // Add resource with priority ceiling
+    pcp.resources[resourceId] = {
+        ceiling: ceiling,
+        holder: null
+    };
+    
+    pcp.systemCeiling = max(pcp.systemCeiling, ceiling);
+}
+
+fn pcp_lock(pcp, resourceId, task) {
+    // Acquire resource lock
+    let resource = pcp.resources[resourceId];
+    
+    if (resource.holder == null && task.priority > pcp.systemCeiling) {
+        resource.holder = task;
+        return true;
+    }
+    
+    return false;
+}
+
+fn pcp_unlock(pcp, resourceId, task) {
+    // Release resource lock
+    let resource = pcp.resources[resourceId];
+    
+    if (resource.holder == task) {
+        resource.holder = null;
+        return true;
+    }
+    
+    return false;
+}
+
+// ===== DETERMINISTIC MEMORY ALLOCATOR =====
+
+fn rtmem_create(poolSize, blockSize) {
+    // Create real-time memory pool
+    return {
+        pool: arr_fill(poolSize / blockSize, null),
+        blockSize: blockSize,
+        freeList: arr_range(0, poolSize / blockSize - 1)
+    };
+}
+
+fn rtmem_alloc(rtmem) {
+    // O(1) allocation
+    if (arr_length(rtmem.freeList) == 0) {
+        return null;
+    }
+    
+    let index = arr_pop(rtmem.freeList);
+    return index;
+}
+
+fn rtmem_free(rtmem, index) {
+    // O(1) deallocation
+    arr_push(rtmem.freeList, index);
+    rtmem.pool[index] = null;
+}
+
+// ===== WATCHDOG TIMER =====
+
+fn watchdog_create(timeout) {
+    // Create watchdog timer
+    return {
+        timeout: timeout,
+        lastKick: date_now(),
+        enabled: true
+    };
+}
+
+fn watchdog_kick(watchdog) {
+    // Reset watchdog timer
+    watchdog.lastKick = date_now();
+}
+
+fn watchdog_check(watchdog) {
+    // Check if watchdog expired
+    if (!watchdog.enabled) {
+        return false;
+    }
+    
+    let now = date_now();
+    return (now - watchdog.lastKick) > watchdog.timeout;
+}
+
+// ===== JITTER ANALYSIS =====
+
+fn jitter_measure(task, samples) {
+    // Measure task jitter
+    let execTimes = [];
+    let i = 0;
+    
+    while (i < samples) {
+        let start = sys_rdtsc();
+        // Execute task
+        let end = sys_rdtsc();
+        
+        arr_push(execTimes, end - start);
+        i = i + 1;
+    }
+    
+    let min = arr_min(execTimes);
+    let max = arr_max(execTimes);
+    let avg = arr_average(execTimes);
+    
+    return {
+        min: min,
+        max: max,
+        avg: avg,
+        jitter: max - min
+    };
+}
+
+// ===== RESPONSE TIME ANALYSIS =====
+
+fn rta_calculate(task, tasks) {
+    // Calculate worst-case response time
+    let R = task.wcet;
+    let prevR = 0;
+    
+    while (R != prevR) {
+        prevR = R;
+        let interference = 0;
+        
+        // Calculate interference from higher priority tasks
+        let i = 0;
+        while (i < arr_length(tasks)) {
+            if (tasks[i].priority > task.priority) {
+                interference = interference + 
+                    ceil(R / tasks[i].period) * tasks[i].wcet;
+            }
+            i = i + 1;
+        }
+        
+        R = task.wcet + interference;
+        
+        // Check for convergence failure
+        if (R > task.deadline) {
+            return -1;  // Unschedulable
+        }
+    }
+    
+    return R;
+}
+
+// ===== TIME-TRIGGERED SCHEDULER =====
+
+fn tt_create(majorCycle) {
+    // Create time-triggered scheduler
+    return {
+        majorCycle: majorCycle,
+        schedule: [],
+        currentSlot: 0
+    };
+}
+
+fn tt_addSlot(tt, task, startTime, duration) {
+    // Add time slot to schedule
+    arr_push(tt.schedule, {
+        task: task,
+        startTime: startTime,
+        duration: duration
+    });
+}
+
+fn tt_execute(tt, currentTime) {
+    // Execute scheduled task
+    let slotTime = currentTime % tt.majorCycle;
+    
+    let i = 0;
+    while (i < arr_length(tt.schedule)) {
+        let slot = tt.schedule[i];
+        
+        if (slotTime >= slot.startTime && 
+            slotTime < slot.startTime + slot.duration) {
+            return slot.task;
+        }
+        
+        i = i + 1;
+    }
+    
+    return null;
+}
+
+// ===== INTERRUPT LATENCY MEASUREMENT =====
+
+fn interrupt_measureLatency() {
+    // Measure interrupt latency
+    let samples = [];
+    let i = 0;
+    
+    while (i < 1000) {
+        let start = sys_rdtsc();
+        // Trigger interrupt
+        // Wait for interrupt handler
+        let end = sys_rdtsc();
+        
+        arr_push(samples, end - start);
+        i = i + 1;
+    }
+    
+    return {
+        min: arr_min(samples),
+        max: arr_max(samples),
+        avg: arr_average(samples)
+    };
+}
+
+// ===== DEADLINE MISS DETECTION =====
+
+fn deadline_monitor(task) {
+    // Monitor task for deadline misses
+    let completionTime = task.lastExecution + task.wcet;
+    let deadline = task.nextRelease + task.deadline;
+    
+    if (completionTime > deadline) {
+        return {
+            missed: true,
+            lateness: completionTime - deadline
+        };
+    }
+    
+    return {missed: false, lateness: 0};
+}
+
+// ===== REAL-TIME PROFILER =====
+
+fn rtprofile_create() {
+    // Create real-time profiler
+    return {
+        tasks: {},
+        samples: 0
+    };
+}
+
+fn rtprofile_record(profiler, taskName, execTime) {
+    // Record execution time
+    if (!obj_has(profiler.tasks, taskName)) {
+        profiler.tasks[taskName] = {
+            count: 0,
+            totalTime: 0,
+            minTime: 999999999,
+            maxTime: 0
+        };
+    }
+    
+    let stats = profiler.tasks[taskName];
+    stats.count = stats.count + 1;
+    stats.totalTime = stats.totalTime + execTime;
+    stats.minTime = min(stats.minTime, execTime);
+    stats.maxTime = max(stats.maxTime, execTime);
+    
+    profiler.samples = profiler.samples + 1;
+}
+
+fn rtprofile_report(profiler) {
+    // Generate profiling report
+    let report = [];
+    let taskNames = obj_keys(profiler.tasks);
+    
+    arr_forEach(taskNames, fn(name) {
+        let stats = profiler.tasks[name];
+        let avgTime = stats.totalTime / stats.count;
+        
+        arr_push(report, {
+            task: name,
+            count: stats.count,
+            avgTime: avgTime,
+            minTime: stats.minTime,
+            maxTime: stats.maxTime,
+            jitter: stats.maxTime - stats.minTime
+        });
+    });
+    
+    return report;
+}

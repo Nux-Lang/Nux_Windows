@@ -1,0 +1,116 @@
+# Nux Rust FFI Library
+# Bindings for Rust-based compiler tools
+
+# FFI declarations for Rust interop
+func rust_nom_parse(input, parser_fn) {
+    asm {
+        input
+        parser_fn
+        OP_FFI_CALL_RUST
+    }
+}
+
+func rust_pest_parse(grammar_file, input) {
+    asm {
+        grammar_file
+        input
+        OP_FFI_CALL_RUST_PEST
+    }
+}
+
+func rust_lalrpop_parse(grammar, input) {
+    asm {
+        grammar
+        input
+        OP_FFI_CALL_RUST_LALRPOP
+    }
+}
+
+func rust_logos_tokenize(input) {
+    asm {
+        input
+        OP_FFI_CALL_RUST_LOGOS
+    }
+}
+
+# Inkwell LLVM bindings
+class RustLLVMContext {
+    var context_ptr;
+    
+    func init() {
+        asm {
+            OP_FFI_RUST_LLVM_CREATE_CONTEXT
+        }
+    }
+    
+    func create_module(name) {
+        asm {
+            this.context_ptr
+            name
+            OP_FFI_RUST_LLVM_CREATE_MODULE
+        }
+    }
+}
+
+# Cranelift code generation
+class RustCranelift {
+    var builder;
+    
+    func init() {
+        asm {
+            OP_FFI_RUST_CRANELIFT_INIT
+        }
+    }
+    
+    func compile_function(ir) {
+        asm {
+            this.builder
+            ir
+            OP_FFI_RUST_CRANELIFT_COMPILE
+        }
+    }
+}
+
+# Export Nux functions to Rust
+func export_to_rust(func_name, func_ptr) {
+    asm {
+        func_name
+        func_ptr
+        OP_FFI_EXPORT_TO_RUST
+    }
+}
+
+# Import Rust functions to Nux
+func import_from_rust(lib_path, func_name) {
+    asm {
+        lib_path
+        func_name
+        OP_FFI_IMPORT_FROM_RUST
+    }
+}
+
+# Rust-style Result type
+class RustResult {
+    var is_ok;
+    var value;
+    var error;
+    
+    func ok(val) {
+        this.is_ok = 1;
+        this.value = val;
+    }
+    
+    func err(e) {
+        this.is_ok = 0;
+        this.error = e;
+    }
+    
+    func unwrap() {
+        if (this.is_ok == 1) {
+            return this.value;
+        }
+        println("Error: ");
+        println(this.error);
+        return 0;
+    }
+}

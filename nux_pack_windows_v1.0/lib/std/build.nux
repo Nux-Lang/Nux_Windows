@@ -1,0 +1,372 @@
+// Nux Build System
+// Comprehensive build and project management
+
+// ===== BUILD CONFIGURATION =====
+
+class BuildConfig {
+    fn constructor() {
+        this.name = "";
+        this.version = "1.0.0";
+        this.entry = "src/main.nux";
+        this.output = "dist";
+        this.target = "native";  // native, wasm, js, llvm
+        this.optimization = "release";  // debug, release
+        this.features = [];
+        this.dependencies = {};
+        this.buildScripts = {};
+    }
+    
+    fn fromFile(path) {
+        let json = file_read(path);
+        let data = json_parse(json);
+        
+        this.name = data.name || "";
+        this.version = data.version || "1.0.0";
+        this.entry = data.entry || "src/main.nux";
+        this.output = data.output || "dist";
+        this.target = data.target || "native";
+        this.optimization = data.optimization || "release";
+        this.features = data.features || [];
+        this.dependencies = data.dependencies || {};
+        this.buildScripts = data.buildScripts || {};
+    }
+    
+    fn toFile(path) {
+        let data = {
+            name: this.name,
+            version: this.version,
+            entry: this.entry,
+            output: this.output,
+            target: this.target,
+            optimization: this.optimization,
+            features: this.features,
+            dependencies: this.dependencies,
+            buildScripts: this.buildScripts
+        };
+        
+        file_write(path, json_stringify(data, 2));
+    }
+}
+
+// ===== BUILD SYSTEM =====
+
+class BuildSystem {
+    fn constructor(config) {
+        this.config = config;
+        this.cache = new BuildCache();
+    }
+    
+    fn build() {
+        print("Building " + this.config.name + " v" + this.config.version);
+        
+        // Run pre-build scripts
+        this.runScripts("prebuild");
+        
+        // Compile source files
+        let files = this.collectSourceFiles();
+        let compiled = this.compileFiles(files);
+        
+        // Link
+        let output = this.link(compiled);
+        
+        // Optimize
+        if (this.config.optimization == "release") {
+            output = this.optimize(output);
+        }
+        
+        // Generate output
+        this.generateOutput(output);
+        
+        // Run post-build scripts
+        this.runScripts("postbuild");
+        
+        print("✓ Build complete: " + this.config.output);
+    }
+    
+    fn clean() {
+        print("Cleaning build artifacts...");
+        file_deleteDir(this.config.output);
+        this.cache.clear();
+        print("✓ Clean complete");
+    }
+    
+    fn rebuild() {
+        this.clean();
+        this.build();
+    }
+    
+    fn watch() {
+        print("Watching for changes...");
+        
+        let watcher = new FileWatcher();
+        
+        watcher.watch("src", fn(event) {
+            if (event.type == "change") {
+                print("File changed: " + event.path);
+                this.build();
+            }
+        });
+    }
+    
+    fn collectSourceFiles() {
+        let files = [];
+        
+        let walk = fn(dir) {
+            let entries = file_listDir(dir);
+            
+            arr_forEach(entries, fn(entry) {
+                let fullPath = path_join(dir, entry);
+                
+                if (file_isDir(fullPath)) {
+                    walk(fullPath);
+                } else if (str_endsWith(entry, ".nux")) {
+                    arr_push(files, fullPath);
+                }
+            });
+        };
+        
+        walk("src");
+        
+        return files;
+    }
+    
+    fn compileFiles(files) {
+        let compiled = [];
+        
+        arr_forEach(files, fn(file) {
+            // Check cache
+            if (this.cache.isValid(file)) {
+                arr_push(compiled, this.cache.get(file));
+            } else {
+                let source = file_read(file);
+                let bytecode = compile(source);
+                
+                this.cache.set(file, bytecode);
+                arr_push(compiled, bytecode);
+            }
+        });
+        
+        return compiled;
+    }
+    
+    fn link(compiled) {
+        // Link all compiled modules
+        let linker = new Linker();
+        
+        arr_forEach(compiled, fn(module) {
+            linker.addModule(module);
+        });
+        
+        return linker.link();
+    }
+    
+    fn optimize(output) {
+        let optimizer = new Optimizer();
+        
+        if (this.config.optimization == "release") {
+            output = optimizer.constantFolding(output);
+            output = optimizer.deadCodeElimination(output);
+            output = optimizer.inlining(output);
+        }
+        
+        return output;
+    }
+    
+    fn generateOutput(output) {
+        // Create output directory
+        if (!file_exists(this.config.output)) {
+            file_createDir(this.config.output);
+        }
+        
+        // Generate based on target
+        if (this.config.target == "native") {
+            this.generateNative(output);
+        } else if (this.config.target == "wasm") {
+            this.generateWasm(output);
+        } else if (this.config.target == "js") {
+            this.generateJavaScript(output);
+        } else if (this.config.target == "llvm") {
+            this.generateLLVM(output);
+        }
+    }
+    
+    fn generateNative(output) {
+        let outputPath = path_join(this.config.output, this.config.name);
+        file_write(outputPath, output);
+        file_chmod(outputPath, 0o755);  // Make executable
+    }
+    
+    fn generateWasm(output) {
+        let wasmGen = new WasmGenerator();
+        let wasm = wasmGen.generate(output);
+        
+        let outputPath = path_join(this.config.output, this.config.name + ".wasm");
+        file_write(outputPath, wasm);
+    }
+    
+    fn generateJavaScript(output) {
+        let jsGen = new JavaScriptGenerator();
+        let js = jsGen.generate(output);
+        
+        let outputPath = path_join(this.config.output, this.config.name + ".js");
+        file_write(outputPath, js);
+    }
+    
+    fn generateLLVM(output) {
+        let llvmGen = new LLVMGenerator();
+        let llvm = llvmGen.generate(output);
+        
+        let outputPath = path_join(this.config.output, this.config.name + ".ll");
+        file_write(outputPath, llvm);
+    }
+    
+    fn runScripts(phase) {
+        if (this.config.buildScripts[phase]) {
+            arr_forEach(this.config.buildScripts[phase], fn(script) {
+                sys_exec(script);
+            });
+        }
+    }
+}
+
+// ===== BUILD CACHE =====
+
+class BuildCache {
+    fn constructor() {
+        this.cache = {};
+        this.cacheDir = ".nux_cache";
+        
+        if (!file_exists(this.cacheDir)) {
+            file_createDir(this.cacheDir);
+        }
+    }
+    
+    fn isValid(file) {
+        let cacheKey = this.getCacheKey(file);
+        let cachePath = path_join(this.cacheDir, cacheKey);
+        
+        if (!file_exists(cachePath)) {
+            return false;
+        }
+        
+        let sourceTime = file_mtime(file);
+        let cacheTime = file_mtime(cachePath);
+        
+        return cacheTime >= sourceTime;
+    }
+    
+    fn get(file) {
+        let cacheKey = this.getCacheKey(file);
+        let cachePath = path_join(this.cacheDir, cacheKey);
+        
+        return file_read(cachePath);
+    }
+    
+    fn set(file, data) {
+        let cacheKey = this.getCacheKey(file);
+        let cachePath = path_join(this.cacheDir, cacheKey);
+        
+        file_write(cachePath, data);
+    }
+    
+    fn clear() {
+        file_deleteDir(this.cacheDir);
+        file_createDir(this.cacheDir);
+    }
+    
+    fn getCacheKey(file) {
+        return crypto_sha256(file);
+    }
+}
+
+// ===== LINKER =====
+
+class Linker {
+    fn constructor() {
+        this.modules = [];
+        this.symbols = {};
+    }
+    
+    fn addModule(module) {
+        arr_push(this.modules, module);
+        
+        // Extract symbols
+        obj_forEach(module.exports, fn(name, value) {
+            this.symbols[name] = value;
+        });
+    }
+    
+    fn link() {
+        // Resolve all imports
+        arr_forEach(this.modules, fn(module) {
+            obj_forEach(module.imports, fn(name, ref) {
+                if (this.symbols[name] == null) {
+                    throw new Error("Undefined symbol: " + name);
+                }
+                
+                ref.value = this.symbols[name];
+            });
+        });
+        
+        // Combine all modules
+        return this.combineModules();
+    }
+    
+    fn combineModules() {
+        let combined = {
+            code: [],
+            data: [],
+            exports: {}
+        };
+        
+        arr_forEach(this.modules, fn(module) {
+            arr_pushAll(combined.code, module.code);
+            arr_pushAll(combined.data, module.data);
+            obj_merge(combined.exports, module.exports);
+        });
+        
+        return combined;
+    }
+}
+
+// ===== CLI INTERFACE =====
+
+fn build_init(name) {
+    let config = new BuildConfig();
+    config.name = name;
+    config.toFile("build.json");
+    
+    print("Created build.json");
+}
+
+fn build_build() {
+    let config = new BuildConfig();
+    config.fromFile("build.json");
+    
+    let builder = new BuildSystem(config);
+    builder.build();
+}
+
+fn build_clean() {
+    let config = new BuildConfig();
+    config.fromFile("build.json");
+    
+    let builder = new BuildSystem(config);
+    builder.clean();
+}
+
+fn build_rebuild() {
+    let config = new BuildConfig();
+    config.fromFile("build.json");
+    
+    let builder = new BuildSystem(config);
+    builder.rebuild();
+}
+
+fn build_watch() {
+    let config = new BuildConfig();
+    config.fromFile("build.json");
+    
+    let builder = new BuildSystem(config);
+    builder.watch();
+}

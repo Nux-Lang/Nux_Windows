@@ -1,0 +1,189 @@
+# Nux Compiler Framework
+# Tools for building compilers and interpreters
+
+# Lexer/Tokenizer
+class Lexer {
+    var source;
+    var position;
+    var length;
+    
+    func init(src, len) {
+        this.source = src;
+        this.length = len;
+        this.position = 0;
+    }
+    
+    func next_token() {
+        if (this.position >= this.length) {
+            return 0;
+        }
+        
+        var ch = mem_read8(this.source + this.position);
+        this.position = this.position + 1;
+        
+        return ch;
+    }
+    
+    func peek() {
+        if (this.position >= this.length) {
+            return 0;
+        }
+        return mem_read8(this.source + this.position);
+    }
+}
+
+# AST Node
+class ASTNode {
+    var type;
+    var value;
+    var children;
+    
+    func init(node_type) {
+        this.type = node_type;
+        this.children = new List();
+        this.children.init();
+    }
+    
+    func add_child(child) {
+        this.children.append(child);
+    }
+}
+
+# Parser
+class Parser {
+    var lexer;
+    var current_token;
+    
+    func init(lex) {
+        this.lexer = lex;
+        this.current_token = this.lexer.next_token();
+    }
+    
+    func parse() {
+        var root = new ASTNode();
+        root.init(1);
+        return root;
+    }
+    
+    func advance() {
+        this.current_token = this.lexer.next_token();
+    }
+}
+
+# Symbol Table
+class SymbolTable {
+    var symbols;
+    var parent;
+    
+    func init(parent_scope) {
+        this.symbols = new Map();
+        this.symbols.init();
+        this.parent = parent_scope;
+    }
+    
+    func define(name, type, value) {
+        this.symbols.put(name, value);
+    }
+    
+    func lookup(name) {
+        var value = this.symbols.get(name);
+        
+        if (value == 0) {
+            if (this.parent != 0) {
+                return this.parent.lookup(name);
+            }
+        }
+        
+        return value;
+    }
+}
+
+# Code generator
+class CodeGenerator {
+    var output;
+    var label_counter;
+    
+    func init() {
+        this.output = new List();
+        this.output.init();
+        this.label_counter = 0;
+    }
+    
+    func emit(instruction) {
+        this.output.append(instruction);
+    }
+    
+    func new_label() {
+        var label = this.label_counter;
+        this.label_counter = this.label_counter + 1;
+        return label;
+    }
+    
+    func generate(ast) {
+        # Traverse AST and generate code
+        # ... (implementation)
+    }
+}
+
+# Virtual Machine
+class VM {
+    var stack;
+    var ip;
+    var code;
+    var globals;
+    
+    func init() {
+        this.stack = new List();
+        this.stack.init();
+        this.ip = 0;
+        this.globals = new Map();
+        this.globals.init();
+    }
+    
+    func execute(bytecode) {
+        this.code = bytecode;
+        this.ip = 0;
+        
+        for (;;) {
+            if (this.ip >= bytecode.length()) {
+                break;
+            }
+            
+            var opcode = bytecode.get(this.ip);
+            this.ip = this.ip + 1;
+            
+            if (opcode == 1) {
+                var value = bytecode.get(this.ip);
+                this.ip = this.ip + 1;
+                this.stack.append(value);
+            }
+            
+            if (opcode == 2) {
+                var b = this.stack.get(this.stack.length() - 1);
+                var a = this.stack.get(this.stack.length() - 2);
+                this.stack.append(a + b);
+            }
+        }
+    }
+}
+
+# JIT Compiler (simplified)
+class JITCompiler {
+    var code_cache;
+    
+    func init() {
+        this.code_cache = new Map();
+        this.code_cache.init();
+    }
+    
+    func compile(function_name, bytecode) {
+        var native_code = mem_alloc_aligned(4096, 4096);
+        mem_protect(native_code, 4096, PROT_READ | PROT_WRITE | PROT_EXEC);
+        
+        # Generate x86-64 machine code
+        # ... (implementation)
+        
+        this.code_cache.put(function_name, native_code);
+        return native_code;
+    }
+}

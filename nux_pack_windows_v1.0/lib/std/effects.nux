@@ -1,0 +1,328 @@
+// Nux Effect System
+// Algebraic effects and handlers for controlled side effects
+
+// ===== EFFECT SYSTEM =====
+
+class Effect {
+    fn constructor(name, operations) {
+        this.name = name;
+        this.operations = operations;
+    }
+}
+
+class Handler {
+    fn constructor(effect, handlers, return_handler) {
+        this.effect = effect;
+        this.handlers = handlers;
+        this.return_handler = return_handler;
+    }
+    
+    fn handle(computation) {
+        try {
+            let result = computation();
+            return this.return_handler(result);
+        } catch (eff) {
+            if (eff.effect == this.effect.name) {
+                let handler = this.handlers[eff.operation];
+                if (handler) {
+                    return handler(eff.args, eff.resume);
+                }
+            }
+            throw eff;
+        }
+    }
+}
+
+// ===== BUILT-IN EFFECTS =====
+
+// State effect
+let StateEffect = new Effect("State", ["get", "put"]);
+
+fn state_handler(initial) {
+    let state = initial;
+    
+    return new Handler(
+        StateEffect,
+        {
+            get: fn(args, resume) {
+                return resume(state);
+            },
+            put: fn(args, resume) {
+                state = args[0];
+                return resume(null);
+            }
+        },
+        fn(x) { return {value: x, state: state}; }
+    );
+}
+
+fn get() {
+    return perform(StateEffect, "get", []);
+}
+
+fn put(value) {
+    return perform(StateEffect, "put", [value]);
+}
+
+// Exception effect
+let ExceptionEffect = new Effect("Exception", ["raise"]);
+
+fn exception_handler() {
+    return new Handler(
+        ExceptionEffect,
+        {
+            raise: fn(args, resume) {
+                return {error: args[0]};
+            }
+        },
+        fn(x) { return {ok: x}; }
+    );
+}
+
+fn raise(error) {
+    return perform(ExceptionEffect, "raise", [error]);
+}
+
+// Nondeterminism effect
+let ChoiceEffect = new Effect("Choice", ["choose"]);
+
+fn choice_handler_all() {
+    return new Handler(
+        ChoiceEffect,
+        {
+            choose: fn(args, resume) {
+                let results = [];
+                arr_forEach(args[0], fn(choice) {
+                    arr_push(results, resume(choice));
+                });
+                return arr_flatten(results);
+            }
+        },
+        fn(x) { return [x]; }
+    );
+}
+
+fn choose(choices) {
+    return perform(ChoiceEffect, "choose", [choices]);
+}
+
+// Async effect
+let AsyncEffect = new Effect("Async", ["async", "await"]);
+
+fn async_handler() {
+    return new Handler(
+        AsyncEffect,
+        {
+            async: fn(args, resume) {
+                return new Promise(fn(resolve, reject) {
+                    setTimeout(fn() {
+                        resolve(resume(args[0]()));
+                    }, 0);
+                });
+            },
+            await: fn(args, resume) {
+                return args[0].then(fn(value) {
+                    return resume(value);
+                });
+            }
+        },
+        fn(x) { return Promise.resolve(x); }
+    );
+}
+
+// ===== EFFECT COMPOSITION =====
+
+fn compose_handlers(h1, h2) {
+    return new Handler(
+        h1.effect,
+        h1.handlers,
+        fn(x) {
+            return h2.handle(fn() { return h1.return_handler(x); });
+        }
+    );
+}
+
+// ===== EFFECT TRACKING =====
+
+class EffectType {
+    fn constructor(effects) {
+        this.effects = effects;  // Set of effects
+    }
+    
+    fn add(effect) {
+        return new EffectType(arr_concat(this.effects, [effect]));
+    }
+    
+    fn contains(effect) {
+        return arr_contains(this.effects, effect);
+    }
+    
+    fn union(other) {
+        return new EffectType(arr_union(this.effects, other.effects));
+    }
+}
+
+// Function types with effects
+// fn foo(): int ! {State, Exception}
+class EffectfulFunction {
+    fn constructor(fn, effects) {
+        this.fn = fn;
+        this.effects = effects;
+    }
+    
+    fn call(...args) {
+        return this.fn(...args);
+    }
+}
+
+// ===== DELIMITED CONTINUATIONS =====
+
+class Continuation {
+    fn constructor(fn) {
+        this.fn = fn;
+    }
+    
+    fn resume(value) {
+        return this.fn(value);
+    }
+}
+
+fn shift(fn) {
+    // Capture current continuation
+    let k = capture_continuation();
+    return fn(new Continuation(k));
+}
+
+fn reset(fn) {
+    // Delimit continuation
+    return fn();
+}
+
+// ===== COROUTINES =====
+
+class Coroutine {
+    fn constructor(fn) {
+        this.fn = fn;
+        this.state = "suspended";
+        this.value = null;
+    }
+    
+    fn resume(value) {
+        if (this.state == "dead") {
+            throw new Error("Cannot resume dead coroutine");
+        }
+        
+        this.state = "running";
+        this.value = this.fn(value);
+        
+        if (this.value.done) {
+            this.state = "dead";
+        } else {
+            this.state = "suspended";
+        }
+        
+        return this.value;
+    }
+    
+    fn yield(value) {
+        return {value: value, done: false};
+    }
+}
+
+fn coroutine(fn) {
+    return new Coroutine(fn);
+}
+
+// ===== GENERATORS WITH EFFECTS =====
+
+class EffectfulGenerator {
+    fn constructor(fn, effects) {
+        this.fn = fn;
+        this.effects = effects;
+        this.iterator = null;
+    }
+    
+    fn next() {
+        if (this.iterator == null) {
+            this.iterator = this.fn();
+        }
+        return this.iterator.next();
+    }
+    
+    fn [Symbol.iterator]() {
+        return this;
+    }
+}
+
+// ===== RESOURCE EFFECTS =====
+
+let ResourceEffect = new Effect("Resource", ["acquire", "release"]);
+
+fn resource_handler() {
+    let resources = [];
+    
+    return new Handler(
+        ResourceEffect,
+        {
+            acquire: fn(args, resume) {
+                let resource = args[0]();
+                arr_push(resources, resource);
+                return resume(resource);
+            },
+            release: fn(args, resume) {
+                let resource = args[0];
+                arr_remove(resources, resource);
+                resource.close();
+                return resume(null);
+            }
+        },
+        fn(x) {
+            // Clean up all resources
+            arr_forEach(resources, fn(r) { r.close(); });
+            return x;
+        }
+    );
+}
+
+// ===== AMBIENT EFFECTS =====
+
+class Ambient {
+    fn constructor() {
+        this.values = {};
+    }
+    
+    fn provide(key, value, fn) {
+        let old = this.values[key];
+        this.values[key] = value;
+        
+        try {
+            return fn();
+        } finally {
+            if (old != null) {
+                this.values[key] = old;
+            } else {
+                this.values[key] = null;
+            }
+        }
+    }
+    
+    fn get(key) {
+        if (this.values[key] == null) {
+            throw new Error("Ambient value not provided: " + key);
+        }
+        return this.values[key];
+    }
+}
+
+let ambient = new Ambient();
+
+// ===== EFFECT POLYMORPHISM =====
+
+// Functions polymorphic over effects
+fn map_effectful<T, U, E>(arr: T[], fn: (T) -> U ! E): U[] ! E {
+    let result = [];
+    arr_forEach(arr, fn(x) {
+        arr_push(result, fn(x));
+    });
+    return result;
+}

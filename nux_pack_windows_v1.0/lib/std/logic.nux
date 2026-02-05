@@ -1,0 +1,327 @@
+// Nux Standard Library - Logic Programming
+// Prolog-style logic programming, unification, and resolution
+
+// ===== LOGIC TERM =====
+
+fn logic_var(name) {
+    // Logic variable
+    return {type: "var", name: name};
+}
+
+fn logic_atom(name) {
+    // Atom
+    return {type: "atom", name: name};
+}
+
+fn logic_compound(functor, args) {
+    // Compound term
+    return {type: "compound", functor: functor, args: args};
+}
+
+fn logic_list(elements) {
+    // List
+    return {type: "list", elements: elements};
+}
+
+// ===== UNIFICATION =====
+
+fn logic_unify(term1, term2, substitution) {
+    // Unify two terms
+    term1 = logic_deref(term1, substitution);
+    term2 = logic_deref(term2, substitution);
+    
+    if (term1.type == "var") {
+        if (term1.name == term2.name && term2.type == "var") {
+            return substitution;
+        }
+        if (logic_occursCheck(term1, term2, substitution)) {
+            return null;  // Occurs check failed
+        }
+        substitution[term1.name] = term2;
+        return substitution;
+    }
+    
+    if (term2.type == "var") {
+        return logic_unify(term2, term1, substitution);
+    }
+    
+    if (term1.type == "atom" && term2.type == "atom") {
+        if (term1.name == term2.name) {
+            return substitution;
+        }
+        return null;
+    }
+    
+    if (term1.type == "compound" && term2.type == "compound") {
+        if (term1.functor != term2.functor || 
+            arr_length(term1.args) != arr_length(term2.args)) {
+            return null;
+        }
+        
+        let i = 0;
+        while (i < arr_length(term1.args)) {
+            substitution = logic_unify(term1.args[i], term2.args[i], substitution);
+            if (substitution == null) {
+                return null;
+            }
+            i = i + 1;
+        }
+        
+        return substitution;
+    }
+    
+    return null;
+}
+
+fn logic_deref(term, substitution) {
+    // Dereference variable
+    if (term.type == "var" && obj_has(substitution, term.name)) {
+        return logic_deref(substitution[term.name], substitution);
+    }
+    return term;
+}
+
+fn logic_occursCheck(var, term, substitution) {
+    // Occurs check
+    term = logic_deref(term, substitution);
+    
+    if (term.type == "var") {
+        return term.name == var.name;
+    }
+    
+    if (term.type == "compound") {
+        return arr_some(term.args, fn(arg) {
+            return logic_occursCheck(var, arg, substitution);
+        });
+    }
+    
+    return false;
+}
+
+// ===== CLAUSES =====
+
+fn logic_fact(head) {
+    // Fact (clause with no body)
+    return {type: "fact", head: head};
+}
+
+fn logic_rule(head, body) {
+    // Rule (clause with body)
+    return {type: "rule", head: head, body: body};
+}
+
+// ===== KNOWLEDGE BASE =====
+
+fn kb_create() {
+    // Create knowledge base
+    return {
+        clauses: []
+    };
+}
+
+fn kb_assert(kb, clause) {
+    // Add clause to knowledge base
+    arr_push(kb.clauses, clause);
+}
+
+fn kb_retract(kb, clause) {
+    // Remove clause from knowledge base
+    kb.clauses = arr_filter(kb.clauses, fn(c) {
+        return c != clause;
+    });
+}
+
+// ===== QUERY RESOLUTION =====
+
+fn logic_query(kb, goal) {
+    // Query knowledge base
+    let solutions = [];
+    
+    logic_solve(kb, [goal], {}, fn(substitution) {
+        arr_push(solutions, substitution);
+    });
+    
+    return solutions;
+}
+
+fn logic_solve(kb, goals, substitution, callback) {
+    // Solve goals using SLD resolution
+    if (arr_length(goals) == 0) {
+        callback(substitution);
+        return;
+    }
+    
+    let goal = goals[0];
+    let remainingGoals = arr_slice(goals, 1, arr_length(goals));
+    
+    // Try each clause
+    arr_forEach(kb.clauses, fn(clause) {
+        // Rename variables in clause
+        let renamedClause = logic_renameVars(clause);
+        
+        // Try to unify with head
+        let newSub = logic_unify(goal, renamedClause.head, obj_clone(substitution));
+        
+        if (newSub != null) {
+            let newGoals = remainingGoals;
+            
+            if (renamedClause.type == "rule") {
+                newGoals = arr_concat(renamedClause.body, remainingGoals);
+            }
+            
+            logic_solve(kb, newGoals, newSub, callback);
+        }
+    });
+}
+
+fn logic_renameVars(clause) {
+    // Rename variables in clause
+    let counter = randomInt(1000, 9999);
+    let mapping = {};
+    
+    let rename = fn(term) {
+        if (term.type == "var") {
+            if (!obj_has(mapping, term.name)) {
+                mapping[term.name] = logic_var(term.name + "_" + counter);
+            }
+            return mapping[term.name];
+        }
+        
+        if (term.type == "compound") {
+            return logic_compound(
+                term.functor,
+                arr_map(term.args, rename)
+            );
+        }
+        
+        return term;
+    };
+    
+    if (clause.type == "fact") {
+        return logic_fact(rename(clause.head));
+    } else {
+        return logic_rule(
+            rename(clause.head),
+            arr_map(clause.body, rename)
+        );
+    }
+}
+
+// ===== BUILT-IN PREDICATES =====
+
+fn builtin_is(kb) {
+    // Arithmetic evaluation
+    kb_assert(kb, logic_rule(
+        logic_compound("is", [logic_var("X"), logic_var("Expr")]),
+        []  // Built-in, handled specially
+    ));
+}
+
+fn builtin_append(kb) {
+    // List append
+    // append([], L, L).
+    kb_assert(kb, logic_fact(
+        logic_compound("append", [
+            logic_list([]),
+            logic_var("L"),
+            logic_var("L")
+        ])
+    ));
+    
+    // append([H|T], L, [H|R]) :- append(T, L, R).
+    kb_assert(kb, logic_rule(
+        logic_compound("append", [
+            logic_list([logic_var("H"), logic_var("T")]),
+            logic_var("L"),
+            logic_list([logic_var("H"), logic_var("R")])
+        ]),
+        [
+            logic_compound("append", [
+                logic_var("T"),
+                logic_var("L"),
+                logic_var("R")
+            ])
+        ]
+    ));
+}
+
+// ===== CONSTRAINT LOGIC PROGRAMMING =====
+
+fn clp_domain(var, min, max) {
+    // Finite domain constraint
+    return {
+        type: "domain",
+        var: var,
+        min: min,
+        max: max
+    };
+}
+
+fn clp_constraint(expr) {
+    // Arithmetic constraint
+    return {
+        type: "constraint",
+        expr: expr
+    };
+}
+
+fn clp_solve(constraints) {
+    // Solve CLP constraints
+    // TODO: Implement constraint propagation
+    return {};
+}
+
+// ===== TABLING (MEMOIZATION) =====
+
+fn logic_table(kb, predicate) {
+    // Enable tabling for predicate
+    if (!obj_has(kb, "tables")) {
+        kb.tables = {};
+    }
+    
+    kb.tables[predicate] = {};
+}
+
+fn logic_queryTabled(kb, goal) {
+    // Query with tabling
+    let functor = goal.functor;
+    
+    if (obj_has(kb.tables, functor)) {
+        let key = logic_toString(goal);
+        
+        if (obj_has(kb.tables[functor], key)) {
+            return kb.tables[functor][key];
+        }
+        
+        let solutions = logic_query(kb, goal);
+        kb.tables[functor][key] = solutions;
+        return solutions;
+    }
+    
+    return logic_query(kb, goal);
+}
+
+// ===== TERM TO STRING =====
+
+fn logic_toString(term) {
+    // Convert term to string
+    if (term.type == "var") {
+        return term.name;
+    }
+    
+    if (term.type == "atom") {
+        return term.name;
+    }
+    
+    if (term.type == "compound") {
+        let args = arr_map(term.args, logic_toString);
+        return term.functor + "(" + arr_join(args, ", ") + ")";
+    }
+    
+    if (term.type == "list") {
+        let elements = arr_map(term.elements, logic_toString);
+        return "[" + arr_join(elements, ", ") + "]";
+    }
+    
+    return "?";
+}

@@ -1,0 +1,41 @@
+# Nux Random Library
+# Pseudo-random number generator (Linear Congruential Generator)
+
+class Random {
+    var seed;
+    
+    func init(s) {
+        this.seed = s;
+    }
+
+    func next() {
+        # LCG parameters: a=1664525, c=1013904223, m=2^32
+        # Nux uses 64-bit ints, so we can emulate.
+        var a = 1664525;
+        var c = 1013904223;
+        # Modulo 2^32? 
+        # let m = 4294967296;
+        
+        var next_val = (this.seed * a) + c;
+        # Apply modulo explicitly or let overflow handle it?
+        # Standard LCG usually modulo m.
+        # But our ints are 64-bit signed. 
+        # Modulo using % operator.
+        
+        this.seed = next_val % 4294967296;
+        
+        # Return positive integer
+        if (this.seed < 0) {
+            this.seed = 0 - this.seed;
+        }
+        
+        return this.seed;
+    }
+    
+    func range(min, max) {
+        var r = this.next();
+        var range_len = max - min;
+        var offset = r % range_len;
+        return min + offset;
+    }
+}

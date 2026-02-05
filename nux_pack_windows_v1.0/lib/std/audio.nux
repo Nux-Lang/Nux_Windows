@@ -1,0 +1,191 @@
+# Nux Audio Library
+# Sound card drivers (AC97, Intel HDA)
+
+# AC97 audio controller
+class AC97Controller {
+    var nam_base;
+    var nabm_base;
+    var buffer_addr;
+    var buffer_size;
+    
+    func init(pci_device) {
+        var bar0 = pci_device.read_bar(0);
+        var bar1 = pci_device.read_bar(1);
+        
+        this.nam_base = bar0 & 0xFFFFFFFE;
+        this.nabm_base = bar1 & 0xFFFFFFFE;
+        
+        this.buffer_size = 65536;
+        this.buffer_addr = dma_alloc(this.buffer_size);
+        
+        this.reset();
+    }
+    
+    func reset() {
+        # Reset mixer
+        outw(this.nam_base + 0x00, 0);
+        
+        # Set master volume
+        outw(this.nam_base + 0x02, 0x0000);
+        
+        # Set PCM out volume
+        outw(this.nam_base + 0x18, 0x0808);
+    }
+    
+    func play_buffer(samples, count) {
+        # Setup buffer descriptor
+        var bdl_addr = mem_alloc_aligned(32, 8);
+        mem_write32(bdl_addr, samples);
+        mem_write32(bdl_addr + 4, count | 0x80000000);
+        
+        # Set BDL address
+        outl(this.nabm_base + 0x10, bdl_addr);
+        
+        # Set last valid index
+        outb(this.nabm_base + 0x15, 1);
+        
+        # Start playback
+        var ctrl = inb(this.nabm_base + 0x1B);
+        outb(this.nabm_base + 0x1B, ctrl | 0x01);
+    }
+    
+    func stop() {
+        var ctrl = inb(this.nabm_base + 0x1B);
+        outb(this.nabm_base + 0x1B, ctrl & 0xFE);
+    }
+    
+    func set_volume(left, right) {
+        var vol = ((63 - left) << 8) | (63 - right);
+        outw(this.nam_base + 0x02, vol);
+    }
+}
+
+# Intel HD Audio
+class HDAController {
+    var base_addr;
+    var corb_addr;
+    var rirb_addr;
+    var output_stream;
+    
+    func init(pci_device) {
+        var bar0 = pci_device.read_bar(0);
+        this.base_addr = bar0 & 0xFFFFFFFFFFFFFFF0;
+        
+        this.reset();
+        this.setup_corb_rirb();
+    }
+    
+    func reset() {
+        # Reset controller
+        var gctl = mem_read32(this.base_addr + 0x08);
+        gctl = gctl & 0xFFFFFFFE;
+        mem_write32(this.base_addr + 0x08, gctl);
+        
+        # Wait for reset
+        for (;;) {
+            gctl = mem_read32(this.base_addr + 0x08);
+            if ((gctl & 0x01) == 0) {
+                break;
+            }
+            thread_yield();
+        }
+        
+        # Exit reset
+        gctl = gctl | 0x01;
+        mem_write32(this.base_addr + 0x08, gctl);
+        
+        # Wait for ready
+        for (;;) {
+            gctl = mem_read32(this.base_addr + 0x08);
+            if ((gctl & 0x01) != 0) {
+                break;
+            }
+            thread_yield();
+        }
+    }
+    
+    func setup_corb_rirb() {
+        # Allocate CORB (Command Output Ring Buffer)
+        this.corb_addr = mem_alloc_aligned(1024, 128);
+        mem_write64(this.base_addr + 0x40, this.corb_addr);
+        
+        # Set CORB size
+        mem_write8(this.base_addr + 0x4E, 0x02);
+        
+        # Allocate RIRB (Response Input Ring Buffer)
+        this.rirb_addr = mem_alloc_aligned(2048, 128);
+        mem_write64(this.base_addr + 0x50, this.rirb_addr);
+        
+        # Set RIRB size
+        mem_write8(this.base_addr + 0x5E, 0x02);
+        
+        # Enable CORB/RIRB
+        mem_write8(this.base_addr + 0x4C, 0x02);
+        mem_write8(this.base_addr + 0x5C, 0x02);
+    }
+    
+    func send_verb(codec, node, verb, param) {
+        var command = (codec << 28) | (node << 20) | (verb << 8) | param;
+        
+        # Write to CORB
+        var wp = mem_read16(this.base_addr + 0x48);
+        mem_write32(this.corb_addr + (wp * 4), command);
+        
+        # Update write pointer
+        wp = (wp + 1) % 256;
+        mem_write16(this.base_addr + 0x48, wp);
+    }
+    
+    func get_response() {
+        # Read from RIRB
+        var rp = mem_read16(this.base_addr + 0x58);
+        var response = mem_read64(this.rirb_addr + (rp * 8));
+        return response;
+    }
+}
+
+# Audio sample buffer
+class AudioBuffer {
+    var data;
+    var size;
+    var sample_rate;
+    var channels;
+    var bits_per_sample;
+    
+    func init(samples, rate, ch, bps) {
+        this.size = samples;
+        this.sample_rate = rate;
+        this.channels = ch;
+        this.bits_per_sample = bps;
+        
+        var bytes = samples * ch * (bps / 8);
+        this.data = mem_alloc_aligned(bytes, 4096);
+    }
+    
+    func set_sample(index, channel, value) {
+        var offset = (index * this.channels + channel) * (this.bits_per_sample / 8);
+        
+        if (this.bits_per_sample == 16) {
+            mem_write16(this.data + offset, value);
+        }
+        if (this.bits_per_sample == 8) {
+            mem_write8(this.data + offset, value);
+        }
+    }
+    
+    func generate_sine(frequency, duration) {
+        var samples = this.sample_rate * duration;
+        var i = 0;
+        
+        for (i = 0; i < samples; i = i + 1) {
+            var t = i / this.sample_rate;
+            var value = sin(2 * 3.14159 * frequency * t);
+            var sample = value * 32767;
+            
+            this.set_sample(i, 0, sample);
+            if (this.channels == 2) {
+                this.set_sample(i, 1, sample);
+            }
+        }
+    }
+}

@@ -1,0 +1,309 @@
+// Nux Package Manager
+// Package installation and dependency management
+
+// ===== PACKAGE CONFIGURATION =====
+
+class PackageConfig {
+    fn constructor() {
+        this.name = "";
+        this.version = "1.0.0";
+        this.description = "";
+        this.author = "";
+        this.license = "MIT";
+        this.dependencies = {};
+        this.devDependencies = {};
+        this.scripts = {};
+        this.main = "index.nux";
+    }
+    
+    fn toJSON() {
+        return {
+            name: this.name,
+            version: this.version,
+            description: this.description,
+            author: this.author,
+            license: this.license,
+            dependencies: this.dependencies,
+            devDependencies: this.devDependencies,
+            scripts: this.scripts,
+            main: this.main
+        };
+    }
+    
+    fn fromJSON(json) {
+        this.name = json.name || "";
+        this.version = json.version || "1.0.0";
+        this.description = json.description || "";
+        this.author = json.author || "";
+        this.license = json.license || "MIT";
+        this.dependencies = json.dependencies || {};
+        this.devDependencies = json.devDependencies || {};
+        this.scripts = json.scripts || {};
+        this.main = json.main || "index.nux";
+    }
+}
+
+// ===== PACKAGE MANAGER =====
+
+class PackageManager {
+    fn constructor() {
+        this.registry = "https://registry.nux.dev";
+        this.cacheDir = path_join(sys_home(), ".nux", "cache");
+        this.modulesDir = "nux_modules";
+    }
+    
+    fn init(name) {
+        let config = new PackageConfig();
+        config.name = name;
+        
+        let json = json_stringify(config.toJSON(), 2);
+        file_write("nux.json", json);
+        
+        print("Created nux.json");
+    }
+    
+    fn install(packageName, version) {
+        if (packageName) {
+            return this.installPackage(packageName, version);
+        } else {
+            return this.installAll();
+        }
+    }
+    
+    fn installPackage(name, version) {
+        print("Installing " + name + "@" + (version || "latest") + "...");
+        
+        // Fetch package info
+        let info = this.fetchPackageInfo(name, version);
+        
+        // Download package
+        let tarballPath = this.downloadPackage(info);
+        
+        // Extract package
+        this.extractPackage(tarballPath, name);
+        
+        // Update nux.json
+        this.addDependency(name, info.version);
+        
+        // Install dependencies
+        this.installDependencies(info.dependencies);
+        
+        print("✓ Installed " + name + "@" + info.version);
+    }
+    
+    fn installAll() {
+        let config = this.loadConfig();
+        
+        print("Installing dependencies...");
+        
+        obj_forEach(config.dependencies, fn(name, version) {
+            this.installPackage(name, version);
+        });
+        
+        print("✓ All dependencies installed");
+    }
+    
+    fn uninstall(packageName) {
+        print("Uninstalling " + packageName + "...");
+        
+        // Remove from nux_modules
+        let packagePath = path_join(this.modulesDir, packageName);
+        file_deleteDir(packagePath);
+        
+        // Remove from nux.json
+        this.removeDependency(packageName);
+        
+        print("✓ Uninstalled " + packageName);
+    }
+    
+    fn update(packageName) {
+        if (packageName) {
+            this.updatePackage(packageName);
+        } else {
+            this.updateAll();
+        }
+    }
+    
+    fn updatePackage(name) {
+        print("Updating " + name + "...");
+        
+        // Get latest version
+        let info = this.fetchPackageInfo(name, "latest");
+        
+        // Reinstall
+        this.uninstall(name);
+        this.installPackage(name, info.version);
+        
+        print("✓ Updated " + name + " to " + info.version);
+    }
+    
+    fn updateAll() {
+        let config = this.loadConfig();
+        
+        obj_forEach(config.dependencies, fn(name, version) {
+            this.updatePackage(name);
+        });
+    }
+    
+    fn publish() {
+        let config = this.loadConfig();
+        
+        print("Publishing " + config.name + "@" + config.version + "...");
+        
+        // Create tarball
+        let tarballPath = this.createTarball(config);
+        
+        // Upload to registry
+        this.uploadPackage(tarballPath, config);
+        
+        print("✓ Published " + config.name + "@" + config.version);
+    }
+    
+    fn search(query) {
+        print("Searching for: " + query);
+        
+        let url = this.registry + "/search?q=" + http_encodeURI(query);
+        let response = http_get(url);
+        
+        let results = json_parse(response.body);
+        
+        arr_forEach(results, fn(pkg) {
+            print("  " + pkg.name + " - " + pkg.description);
+        });
+    }
+    
+    fn list() {
+        let config = this.loadConfig();
+        
+        print("Dependencies:");
+        obj_forEach(config.dependencies, fn(name, version) {
+            print("  " + name + "@" + version);
+        });
+    }
+    
+    // ===== HELPER METHODS =====
+    
+    fn loadConfig() {
+        let json = file_read("nux.json");
+        let data = json_parse(json);
+        
+        let config = new PackageConfig();
+        config.fromJSON(data);
+        
+        return config;
+    }
+    
+    fn saveConfig(config) {
+        let json = json_stringify(config.toJSON(), 2);
+        file_write("nux.json", json);
+    }
+    
+    fn addDependency(name, version) {
+        let config = this.loadConfig();
+        config.dependencies[name] = "^" + version;
+        this.saveConfig(config);
+    }
+    
+    fn removeDependency(name) {
+        let config = this.loadConfig();
+        config.dependencies[name] = null;
+        this.saveConfig(config);
+    }
+    
+    fn fetchPackageInfo(name, version) {
+        let url = this.registry + "/" + name;
+        
+        if (version && version != "latest") {
+            url = url + "/" + version;
+        }
+        
+        let response = http_get(url);
+        return json_parse(response.body);
+    }
+    
+    fn downloadPackage(info) {
+        let tarballUrl = info.dist.tarball;
+        let filename = info.name + "-" + info.version + ".tar.gz";
+        let cachePath = path_join(this.cacheDir, filename);
+        
+        // Create cache directory
+        if (!file_exists(this.cacheDir)) {
+            file_createDir(this.cacheDir);
+        }
+        
+        // Download
+        http_download(tarballUrl, cachePath);
+        
+        return cachePath;
+    }
+    
+    fn extractPackage(tarballPath, name) {
+        let targetPath = path_join(this.modulesDir, name);
+        
+        // Create modules directory
+        if (!file_exists(this.modulesDir)) {
+            file_createDir(this.modulesDir);
+        }
+        
+        // Extract tarball
+        sys_exec("tar -xzf " + tarballPath + " -C " + this.modulesDir);
+    }
+    
+    fn installDependencies(dependencies) {
+        obj_forEach(dependencies, fn(name, version) {
+            this.installPackage(name, version);
+        });
+    }
+    
+    fn createTarball(config) {
+        let filename = config.name + "-" + config.version + ".tar.gz";
+        sys_exec("tar -czf " + filename + " .");
+        return filename;
+    }
+    
+    fn uploadPackage(tarballPath, config) {
+        let url = this.registry + "/publish";
+        
+        http_upload(url, tarballPath, {
+            name: config.name,
+            version: config.version
+        });
+    }
+}
+
+// ===== CLI INTERFACE =====
+
+fn pkg_init(name) {
+    let pm = new PackageManager();
+    pm.init(name);
+}
+
+fn pkg_install(packageName, version) {
+    let pm = new PackageManager();
+    pm.install(packageName, version);
+}
+
+fn pkg_uninstall(packageName) {
+    let pm = new PackageManager();
+    pm.uninstall(packageName);
+}
+
+fn pkg_update(packageName) {
+    let pm = new PackageManager();
+    pm.update(packageName);
+}
+
+fn pkg_publish() {
+    let pm = new PackageManager();
+    pm.publish();
+}
+
+fn pkg_search(query) {
+    let pm = new PackageManager();
+    pm.search(query);
+}
+
+fn pkg_list() {
+    let pm = new PackageManager();
+    pm.list();
+}

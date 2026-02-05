@@ -1,0 +1,399 @@
+# Nux Kernel Primitives Library
+# Low-level OS building blocks
+
+import "std.memory";
+
+# ============================================================
+# INTERRUPT HANDLING
+# ============================================================
+
+var IDT_SIZE = 256;
+var interrupt_handlers = 0;
+
+class InterruptDescriptor {
+    var offset_low;
+    var selector;
+    var zero;
+    var type_attr;
+    var offset_high;
+    
+    func init(handler_addr, sel, type_a) {
+        this.offset_low = handler_addr & 0xFFFF;
+        this.offset_high = (handler_addr >> 16) & 0xFFFF;
+        this.selector = sel;
+        this.zero = 0;
+        this.type_attr = type_a;
+    }
+}
+
+class IDT {
+    var base;
+    var limit;
+    var descriptors;
+    
+    func init() {
+        this.descriptors = new List();
+        this.descriptors.init();
+        var i = 0;
+        for (i = 0; i < IDT_SIZE; i = i + 1) {
+            var desc = new InterruptDescriptor();
+            desc.init(0, 0x08, 0x8E);
+            this.descriptors.append(desc);
+        }
+    }
+    
+    func set_gate(num, handler, selector, flags) {
+        var desc = this.descriptors.get(num);
+        desc.offset_low = handler & 0xFFFF;
+        desc.offset_high = (handler >> 16) & 0xFFFF;
+        desc.selector = selector;
+        desc.type_attr = flags;
+    }
+    
+    func load() {
+        # lidt instruction
+        asm("lidt [idt_ptr]");
+    }
+}
+
+func register_interrupt(num, handler) {
+    if (interrupt_handlers == 0) {
+        interrupt_handlers = new Map();
+        interrupt_handlers.init();
+    }
+    interrupt_handlers.put(num, handler);
+}
+
+func dispatch_interrupt(num, context) {
+    if (interrupt_handlers != 0 && interrupt_handlers.has(num)) {
+        var handler = interrupt_handlers.get(num);
+        return handler(context);
+    }
+    return 0;
+}
+
+# ============================================================
+# MEMORY MANAGEMENT
+# ============================================================
+
+var PAGE_SIZE = 4096;
+var PAGE_PRESENT = 0x01;
+var PAGE_WRITABLE = 0x02;
+var PAGE_USER = 0x04;
+
+class PageTableEntry {
+    var value;
+    
+    func init() {
+        this.value = 0;
+    }
+    
+    func set_frame(frame_addr) {
+        this.value = (frame_addr & 0xFFFFF000) | (this.value & 0xFFF);
+    }
+    
+    func get_frame() {
+        return this.value & 0xFFFFF000;
+    }
+    
+    func set_flags(flags) {
+        this.value = (this.value & 0xFFFFF000) | (flags & 0xFFF);
+    }
+    
+    func is_present() { return (this.value & PAGE_PRESENT) != 0; }
+    func is_writable() { return (this.value & PAGE_WRITABLE) != 0; }
+    func is_user() { return (this.value & PAGE_USER) != 0; }
+}
+
+class PageTable {
+    var entries;
+    
+    func init() {
+        this.entries = new List();
+        this.entries.init();
+        var i = 0;
+        for (i = 0; i < 1024; i = i + 1) {
+            var entry = new PageTableEntry();
+            entry.init();
+            this.entries.append(entry);
+        }
+    }
+    
+    func get_entry(index) {
+        return this.entries.get(index);
+    }
+}
+
+class PageDirectory {
+    var tables;
+    var table_addresses;
+    var physical_addr;
+    
+    func init() {
+        this.tables = new List();
+        this.tables.init();
+        this.table_addresses = new List();
+        this.table_addresses.init();
+        
+        var i = 0;
+        for (i = 0; i < 1024; i = i + 1) {
+            this.tables.append(0);
+            this.table_addresses.append(0);
+        }
+    }
+    
+    func get_table(index, create) {
+        if (this.tables.get(index) == 0 && create == 1) {
+            var table = new PageTable();
+            table.init();
+            this.tables.set(index, table);
+        }
+        return this.tables.get(index);
+    }
+    
+    func map_page(virtual_addr, physical_addr, flags) {
+        var dir_idx = virtual_addr >> 22;
+        var table_idx = (virtual_addr >> 12) & 0x3FF;
+        
+        var table = this.get_table(dir_idx, 1);
+        var entry = table.get_entry(table_idx);
+        entry.set_frame(physical_addr);
+        entry.set_flags(flags | PAGE_PRESENT);
+    }
+    
+    func unmap_page(virtual_addr) {
+        var dir_idx = virtual_addr >> 22;
+        var table_idx = (virtual_addr >> 12) & 0x3FF;
+        
+        var table = this.get_table(dir_idx, 0);
+        if (table != 0) {
+            var entry = table.get_entry(table_idx);
+            entry.value = 0;
+        }
+    }
+    
+    func translate(virtual_addr) {
+        var dir_idx = virtual_addr >> 22;
+        var table_idx = (virtual_addr >> 12) & 0x3FF;
+        var offset = virtual_addr & 0xFFF;
+        
+        var table = this.get_table(dir_idx, 0);
+        if (table == 0) { return 0; }
+        
+        var entry = table.get_entry(table_idx);
+        if (entry.is_present() == 0) { return 0; }
+        
+        return entry.get_frame() + offset;
+    }
+}
+
+class FrameAllocator {
+    var bitmap;
+    var total_frames;
+    var next_free;
+    
+    func init(memory_size) {
+        this.total_frames = memory_size / PAGE_SIZE;
+        this.next_free = 0;
+        
+        this.bitmap = new List();
+        this.bitmap.init();
+        var i = 0;
+        for (i = 0; i < this.total_frames / 32 + 1; i = i + 1) {
+            this.bitmap.append(0);
+        }
+    }
+    
+    func allocate() {
+        var i = 0;
+        for (i = this.next_free; i < this.total_frames; i = i + 1) {
+            var word = i / 32;
+            var bit = i % 32;
+            
+            if ((this.bitmap.get(word) & (1 << bit)) == 0) {
+                this.bitmap.set(word, this.bitmap.get(word) | (1 << bit));
+                this.next_free = i + 1;
+                return i * PAGE_SIZE;
+            }
+        }
+        return 0;
+    }
+    
+    func free(frame_addr) {
+        var frame = frame_addr / PAGE_SIZE;
+        var word = frame / 32;
+        var bit = frame % 32;
+        
+        this.bitmap.set(word, this.bitmap.get(word) & ~(1 << bit));
+        if (frame < this.next_free) {
+            this.next_free = frame;
+        }
+    }
+    
+    func mark_used(start, count) {
+        var i = 0;
+        for (i = 0; i < count; i = i + 1) {
+            var frame = start / PAGE_SIZE + i;
+            var word = frame / 32;
+            var bit = frame % 32;
+            this.bitmap.set(word, this.bitmap.get(word) | (1 << bit));
+        }
+    }
+}
+
+# ============================================================
+# SPINLOCK
+# ============================================================
+
+class Spinlock {
+    var locked;
+    
+    func init() {
+        this.locked = 0;
+    }
+    
+    func acquire() {
+        while (1) {
+            # Atomic test-and-set
+            var old = this.locked;
+            this.locked = 1;
+            if (old == 0) { break; }
+            # Spin
+        }
+    }
+    
+    func release() {
+        this.locked = 0;
+    }
+    
+    func try_lock() {
+        var old = this.locked;
+        this.locked = 1;
+        return old == 0;
+    }
+}
+
+class Mutex {
+    var owner;
+    var lock_count;
+    var wait_queue;
+    var spinlock;
+    
+    func init() {
+        this.owner = 0;
+        this.lock_count = 0;
+        this.spinlock = new Spinlock();
+        this.spinlock.init();
+        this.wait_queue = new List();
+        this.wait_queue.init();
+    }
+    
+    func lock(thread_id) {
+        this.spinlock.acquire();
+        
+        if (this.owner == 0) {
+            this.owner = thread_id;
+            this.lock_count = 1;
+        } else if (this.owner == thread_id) {
+            this.lock_count = this.lock_count + 1;
+        } else {
+            this.wait_queue.append(thread_id);
+            # Block thread
+        }
+        
+        this.spinlock.release();
+    }
+    
+    func unlock(thread_id) {
+        this.spinlock.acquire();
+        
+        if (this.owner == thread_id) {
+            this.lock_count = this.lock_count - 1;
+            if (this.lock_count == 0) {
+                if (this.wait_queue.length() > 0) {
+                    this.owner = this.wait_queue.remove(0);
+                    this.lock_count = 1;
+                    # Wake thread
+                } else {
+                    this.owner = 0;
+                }
+            }
+        }
+        
+        this.spinlock.release();
+    }
+}
+
+class Semaphore {
+    var count;
+    var wait_queue;
+    var spinlock;
+    
+    func init(initial_count) {
+        this.count = initial_count;
+        this.spinlock = new Spinlock();
+        this.spinlock.init();
+        this.wait_queue = new List();
+        this.wait_queue.init();
+    }
+    
+    func wait(thread_id) {
+        this.spinlock.acquire();
+        
+        if (this.count > 0) {
+            this.count = this.count - 1;
+            this.spinlock.release();
+        } else {
+            this.wait_queue.append(thread_id);
+            this.spinlock.release();
+            # Block thread
+        }
+    }
+    
+    func signal() {
+        this.spinlock.acquire();
+        
+        if (this.wait_queue.length() > 0) {
+            var thread_id = this.wait_queue.remove(0);
+            # Wake thread
+        } else {
+            this.count = this.count + 1;
+        }
+        
+        this.spinlock.release();
+    }
+}
+
+# ============================================================
+# SYSCALL INTERFACE
+# ============================================================
+
+var syscall_table = 0;
+
+func register_syscall(num, handler) {
+    if (syscall_table == 0) {
+        syscall_table = new Map();
+        syscall_table.init();
+    }
+    syscall_table.put(num, handler);
+}
+
+func syscall_dispatch(num, arg1, arg2, arg3) {
+    if (syscall_table != 0 && syscall_table.has(num)) {
+        var handler = syscall_table.get(num);
+        return handler(arg1, arg2, arg3);
+    }
+    return -1;
+}
+
+# Standard syscall numbers
+var SYS_EXIT = 1;
+var SYS_READ = 3;
+var SYS_WRITE = 4;
+var SYS_OPEN = 5;
+var SYS_CLOSE = 6;
+var SYS_FORK = 2;
+var SYS_EXEC = 11;
+var SYS_WAIT = 7;
+var SYS_MMAP = 9;
+var SYS_MUNMAP = 11;

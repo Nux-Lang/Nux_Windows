@@ -1,0 +1,46 @@
+# Nux OO File Library
+import "std.file";
+
+class File {
+    var handle;
+    var path;
+
+    func open(file_path, mode) {
+        # this.path = file_path;
+        # For now, assignment to fields via this.field not fully parsed in compiler yet
+        # (need to implement parse_assignment via dot)
+        # But we can assume handle is opaque.
+        
+        # Temporary workaround: we use local variables mostly?
+        # NO, we need this.handle.
+        # But let's check if compiler supports `this.handle = val`?
+        # `parse_statement_or_expr` calls `parse_expression`?
+        # Assignment is not an expression in Nux? `var = val;` is statement.
+        # `parse_assignment`: `Token::Identifier` -> check if next is `=`?
+        # `parse_statement_or_expr` line 570...
+        # It handles `Identifier = expr`.
+        # Does it handle `this.Identifier = expr`?
+        # Line 598: `if self.current_token == Token::Dot` ...
+        # Yes! It seems to support member setting! Line 616.
+        # `out.push_str(&format!("PUSH {}\nOP_ADD\nPOKE\n", offset))`
+        
+        # HOWEVER, the left side (object) must be a variable.
+        # "this" is a variable (argument 0).
+        # So `this.handle = ...` should work!
+        
+        var h = fopen(file_path, mode);
+        this.handle = h;
+    }
+
+    func read() {
+        return fread(this.handle);
+    }
+    
+    func write(content) {
+        fwrite(this.handle, content);
+    }
+
+    func close() {
+        fclose(this.handle);
+    }
+}

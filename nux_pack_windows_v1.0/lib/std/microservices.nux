@@ -1,0 +1,329 @@
+// Nux Standard Library - Microservices
+// Service mesh, API gateway, and microservice patterns
+
+// ===== SERVICE REGISTRY =====
+
+fn registry_create() {
+    // Create service registry
+    return {
+        services: {}
+    };
+}
+
+fn registry_register(registry, serviceName, instance) {
+    // Register service instance
+    if (!obj_has(registry.services, serviceName)) {
+        registry.services[serviceName] = [];
+    }
+    
+    instance.registeredAt = date_now();
+    instance.lastHeartbeat = date_now();
+    arr_push(registry.services[serviceName], instance);
+}
+
+fn registry_deregister(registry, serviceName, instanceId) {
+    // Deregister service instance
+    if (obj_has(registry.services, serviceName)) {
+        registry.services[serviceName] = arr_filter(
+            registry.services[serviceName],
+            fn(inst) { return inst.id != instanceId; }
+        );
+    }
+}
+
+fn registry_discover(registry, serviceName) {
+    // Discover service instances
+    return registry.services[serviceName] || [];
+}
+
+fn registry_heartbeat(registry, serviceName, instanceId) {
+    // Update heartbeat
+    let instances = registry.services[serviceName] || [];
+    
+    arr_forEach(instances, fn(inst) {
+        if (inst.id == instanceId) {
+            inst.lastHeartbeat = date_now();
+        }
+    });
+}
+
+// ===== LOAD BALANCER =====
+
+fn loadbalancer_roundRobin() {
+    // Round-robin load balancer
+    let current = 0;
+    
+    return fn(instances) {
+        if (arr_length(instances) == 0) {
+            return null;
+        }
+        
+        let instance = instances[current % arr_length(instances)];
+        current = current + 1;
+        return instance;
+    };
+}
+
+fn loadbalancer_leastConnections() {
+    // Least connections load balancer
+    return fn(instances) {
+        if (arr_length(instances) == 0) {
+            return null;
+        }
+        
+        let sorted = arr_sort(instances, fn(a, b) {
+            return a.connections - b.connections;
+        });
+        
+        return sorted[0];
+    };
+}
+
+fn loadbalancer_random() {
+    // Random load balancer
+    return fn(instances) {
+        if (arr_length(instances) == 0) {
+            return null;
+        }
+        
+        let index = randomInt(0, arr_length(instances));
+        return instances[index];
+    };
+}
+
+// ===== CIRCUIT BREAKER =====
+
+fn circuitbreaker_create(threshold, timeout) {
+    // Create circuit breaker
+    return {
+        state: "closed",
+        failures: 0,
+        threshold: threshold,
+        timeout: timeout,
+        lastFailure: 0
+    };
+}
+
+fn circuitbreaker_call(breaker, fn) {
+    // Call through circuit breaker
+    if (breaker.state == "open") {
+        let now = date_now();
+        
+        if (now - breaker.lastFailure > breaker.timeout) {
+            breaker.state = "half-open";
+        } else {
+            return {success: false, error: "Circuit breaker open"};
+        }
+    }
+    
+    try {
+        let result = fn();
+        
+        if (breaker.state == "half-open") {
+            breaker.state = "closed";
+            breaker.failures = 0;
+        }
+        
+        return {success: true, value: result};
+    } catch (error) {
+        breaker.failures = breaker.failures + 1;
+        breaker.lastFailure = date_now();
+        
+        if (breaker.failures >= breaker.threshold) {
+            breaker.state = "open";
+        }
+        
+        return {success: false, error: error};
+    }
+}
+
+// ===== API GATEWAY =====
+
+fn apigateway_create() {
+    // Create API gateway
+    return {
+        routes: {},
+        middleware: []
+    };
+}
+
+fn apigateway_route(gateway, path, service) {
+    // Register route
+    gateway.routes[path] = service;
+}
+
+fn apigateway_use(gateway, middleware) {
+    // Add middleware
+    arr_push(gateway.middleware, middleware);
+}
+
+fn apigateway_handle(gateway, request) {
+    // Handle request
+    let service = gateway.routes[request.path];
+    
+    if (!service) {
+        return {status: 404, body: "Not found"};
+    }
+    
+    // Apply middleware
+    let modifiedRequest = request;
+    arr_forEach(gateway.middleware, fn(mw) {
+        modifiedRequest = mw(modifiedRequest);
+    });
+    
+    // Forward to service
+    return service.handle(modifiedRequest);
+}
+
+// ===== RATE LIMITER =====
+
+fn ratelimiter_create(maxRequests, windowMs) {
+    // Create rate limiter
+    return {
+        requests: {},
+        maxRequests: maxRequests,
+        windowMs: windowMs
+    };
+}
+
+fn ratelimiter_allow(limiter, clientId) {
+    // Check if request allowed
+    let now = date_now();
+    
+    if (!obj_has(limiter.requests, clientId)) {
+        limiter.requests[clientId] = [];
+    }
+    
+    // Remove old requests
+    limiter.requests[clientId] = arr_filter(
+        limiter.requests[clientId],
+        fn(timestamp) { return now - timestamp < limiter.windowMs; }
+    );
+    
+    if (arr_length(limiter.requests[clientId]) < limiter.maxRequests) {
+        arr_push(limiter.requests[clientId], now);
+        return true;
+    }
+    
+    return false;
+}
+
+// ===== SERVICE MESH =====
+
+fn servicemesh_create() {
+    // Create service mesh
+    return {
+        services: {},
+        policies: {}
+    };
+}
+
+fn servicemesh_addService(mesh, name, service) {
+    // Add service to mesh
+    mesh.services[name] = service;
+}
+
+fn servicemesh_setPolicy(mesh, serviceName, policy) {
+    // Set traffic policy
+    mesh.policies[serviceName] = policy;
+}
+
+fn servicemesh_route(mesh, from, to, request) {
+    // Route request through mesh
+    let policy = mesh.policies[to];
+    
+    if (policy && policy.retries) {
+        let attempts = 0;
+        
+        while (attempts < policy.retries) {
+            let result = mesh.services[to].handle(request);
+            
+            if (result.success) {
+                return result;
+            }
+            
+            attempts = attempts + 1;
+        }
+    }
+    
+    return mesh.services[to].handle(request);
+}
+
+// ===== HEALTH CHECK =====
+
+fn healthcheck_create(service) {
+    // Create health check
+    return {
+        service: service,
+        status: "unknown",
+        lastCheck: 0
+    };
+}
+
+fn healthcheck_check(hc) {
+    // Perform health check
+    try {
+        let result = hc.service.health();
+        hc.status = result.healthy ? "healthy" : "unhealthy";
+        hc.lastCheck = date_now();
+        return hc.status;
+    } catch (error) {
+        hc.status = "unhealthy";
+        hc.lastCheck = date_now();
+        return hc.status;
+    }
+}
+
+// ===== RETRY POLICY =====
+
+fn retry_exponentialBackoff(maxRetries, baseDelay) {
+    // Exponential backoff retry
+    return fn(fn) {
+        let attempt = 0;
+        
+        while (attempt < maxRetries) {
+            try {
+                return fn();
+            } catch (error) {
+                attempt = attempt + 1;
+                
+                if (attempt >= maxRetries) {
+                    throw error;
+                }
+                
+                let delay = baseDelay * pow(2, attempt);
+                sys_sleep(delay);
+            }
+        }
+    };
+}
+
+// ===== BULKHEAD =====
+
+fn bulkhead_create(maxConcurrent) {
+    // Create bulkhead pattern
+    return {
+        maxConcurrent: maxConcurrent,
+        current: 0,
+        queue: []
+    };
+}
+
+fn bulkhead_execute(bulkhead, fn) {
+    // Execute with bulkhead
+    if (bulkhead.current < bulkhead.maxConcurrent) {
+        bulkhead.current = bulkhead.current + 1;
+        
+        try {
+            let result = fn();
+            bulkhead.current = bulkhead.current - 1;
+            return result;
+        } catch (error) {
+            bulkhead.current = bulkhead.current - 1;
+            throw error;
+        }
+    } else {
+        arr_push(bulkhead.queue, fn);
+        return null;
+    }
+}

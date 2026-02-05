@@ -1,0 +1,442 @@
+# Nux GAN Library
+# Generative Adversarial Networks
+
+import "ai.autograd";
+import "std.math";
+
+# ============================================================
+# GENERATOR ARCHITECTURES
+# ============================================================
+
+class LinearGenerator {
+    var layers;
+    var latent_dim;
+    var output_dim;
+    
+    func init(z_dim, hidden_dims, out_dim) {
+        this.latent_dim = z_dim;
+        this.output_dim = out_dim;
+        this.layers = new List();
+        this.layers.init();
+        
+        var prev_dim = z_dim;
+        var i = 0;
+        for (i = 0; i < hidden_dims.length(); i = i + 1) {
+            var layer = new Map();
+            layer.init();
+            layer.put("weight", randn(prev_dim * hidden_dims.get(i), 1));
+            layer.put("bias", zeros(hidden_dims.get(i), 0));
+            layer.put("out_dim", hidden_dims.get(i));
+            this.layers.append(layer);
+            prev_dim = hidden_dims.get(i);
+        }
+        
+        # Output layer
+        var out_layer = new Map();
+        out_layer.init();
+        out_layer.put("weight", randn(prev_dim * out_dim, 1));
+        out_layer.put("bias", zeros(out_dim, 0));
+        out_layer.put("out_dim", out_dim);
+        this.layers.append(out_layer);
+    }
+    
+    func forward(z) {
+        var x = z;
+        var i = 0;
+        for (i = 0; i < this.layers.length() - 1; i = i + 1) {
+            x = this.linear(x, this.layers.get(i));
+            x = relu(x);
+        }
+        # Output with tanh
+        x = this.linear(x, this.layers.get(this.layers.length() - 1));
+        x = this.tanh(x);
+        return x;
+    }
+    
+    func linear(x, layer) {
+        return x;
+    }
+    
+    func tanh(x) {
+        var result = new List();
+        result.init();
+        var i = 0;
+        for (i = 0; i < x.size; i = i + 1) {
+            var val = x.get(i);
+            var e_pos = exp(val);
+            var e_neg = exp(-val);
+            result.append((e_pos - e_neg) / (e_pos + e_neg));
+        }
+        var v = new Variable();
+        v.init(result, 1);
+        return v;
+    }
+}
+
+class DCGANGenerator {
+    var latent_dim;
+    var channels;
+    var fc;
+    var conv_layers;
+    
+    func init(z_dim, img_channels) {
+        this.latent_dim = z_dim;
+        this.channels = img_channels;
+        
+        # Project and reshape
+        this.fc = randn(z_dim * 256 * 4 * 4, 1);
+        
+        # Transposed convolutions
+        this.conv_layers = new List();
+        this.conv_layers.init();
+        
+        # 256 -> 128 -> 64 -> channels
+        this.add_conv_layer(256, 128, 4, 2, 1);
+        this.add_conv_layer(128, 64, 4, 2, 1);
+        this.add_conv_layer(64, img_channels, 4, 2, 1);
+    }
+    
+    func add_conv_layer(in_ch, out_ch, kernel, stride, pad) {
+        var layer = new Map();
+        layer.init();
+        layer.put("weight", randn(in_ch * out_ch * kernel * kernel, 1));
+        layer.put("in_channels", in_ch);
+        layer.put("out_channels", out_ch);
+        layer.put("kernel", kernel);
+        layer.put("stride", stride);
+        layer.put("padding", pad);
+        this.conv_layers.append(layer);
+    }
+    
+    func forward(z) {
+        # FC + reshape to 256x4x4
+        var x = z;
+        
+        # Transposed convolutions with batch norm + ReLU
+        var i = 0;
+        for (i = 0; i < this.conv_layers.length() - 1; i = i + 1) {
+            x = this.conv_transpose(x, this.conv_layers.get(i));
+            x = this.batch_norm(x);
+            x = relu(x);
+        }
+        
+        # Final layer with tanh
+        x = this.conv_transpose(x, this.conv_layers.get(this.conv_layers.length() - 1));
+        x = this.tanh(x);
+        
+        return x;
+    }
+    
+    func conv_transpose(x, layer) {
+        return x;
+    }
+    
+    func batch_norm(x) {
+        return x;
+    }
+    
+    func tanh(x) {
+        var result = new List();
+        result.init();
+        var i = 0;
+        for (i = 0; i < x.size; i = i + 1) {
+            var val = x.get(i);
+            var e_pos = exp(val);
+            var e_neg = exp(-val);
+            result.append((e_pos - e_neg) / (e_pos + e_neg));
+        }
+        var v = new Variable();
+        v.init(result, 1);
+        return v;
+    }
+}
+
+# ============================================================
+# DISCRIMINATOR ARCHITECTURES
+# ============================================================
+
+class LinearDiscriminator {
+    var layers;
+    var input_dim;
+    
+    func init(in_dim, hidden_dims) {
+        this.input_dim = in_dim;
+        this.layers = new List();
+        this.layers.init();
+        
+        var prev_dim = in_dim;
+        var i = 0;
+        for (i = 0; i < hidden_dims.length(); i = i + 1) {
+            var layer = new Map();
+            layer.init();
+            layer.put("weight", randn(prev_dim * hidden_dims.get(i), 1));
+            layer.put("bias", zeros(hidden_dims.get(i), 0));
+            layer.put("out_dim", hidden_dims.get(i));
+            this.layers.append(layer);
+            prev_dim = hidden_dims.get(i);
+        }
+        
+        # Output layer (single value)
+        var out_layer = new Map();
+        out_layer.init();
+        out_layer.put("weight", randn(prev_dim, 1));
+        out_layer.put("bias", zeros(1, 0));
+        out_layer.put("out_dim", 1);
+        this.layers.append(out_layer);
+    }
+    
+    func forward(x) {
+        var i = 0;
+        for (i = 0; i < this.layers.length() - 1; i = i + 1) {
+            x = this.linear(x, this.layers.get(i));
+            x = this.leaky_relu(x, 0.2);
+        }
+        x = this.linear(x, this.layers.get(this.layers.length() - 1));
+        x = sigmoid(x);
+        return x;
+    }
+    
+    func linear(x, layer) {
+        return x;
+    }
+    
+    func leaky_relu(x, alpha) {
+        var result = new List();
+        result.init();
+        var i = 0;
+        for (i = 0; i < x.size; i = i + 1) {
+            var val = x.get(i);
+            if (val > 0) {
+                result.append(val);
+            } else {
+                result.append(alpha * val);
+            }
+        }
+        var v = new Variable();
+        v.init(result, 1);
+        return v;
+    }
+}
+
+# ============================================================
+# LOSS FUNCTIONS
+# ============================================================
+
+class BCELoss {
+    func init() {}
+    
+    func forward(pred, target) {
+        var loss = 0;
+        var i = 0;
+        for (i = 0; i < pred.size; i = i + 1) {
+            var p = pred.get(i);
+            var t = target.get(i);
+            loss = loss - (t * log(p + 0.0000001) + (1 - t) * log(1 - p + 0.0000001));
+        }
+        return loss / pred.size;
+    }
+}
+
+class WassersteinLoss {
+    func init() {}
+    
+    func forward_real(d_real) {
+        var sum = 0;
+        var i = 0;
+        for (i = 0; i < d_real.size; i = i + 1) {
+            sum = sum + d_real.get(i);
+        }
+        return -sum / d_real.size;
+    }
+    
+    func forward_fake(d_fake) {
+        var sum = 0;
+        var i = 0;
+        for (i = 0; i < d_fake.size; i = i + 1) {
+            sum = sum + d_fake.get(i);
+        }
+        return sum / d_fake.size;
+    }
+}
+
+class HingeLoss {
+    func init() {}
+    
+    func forward_real(d_real) {
+        var sum = 0;
+        var i = 0;
+        for (i = 0; i < d_real.size; i = i + 1) {
+            var val = 1 - d_real.get(i);
+            if (val > 0) { sum = sum + val; }
+        }
+        return sum / d_real.size;
+    }
+    
+    func forward_fake(d_fake) {
+        var sum = 0;
+        var i = 0;
+        for (i = 0; i < d_fake.size; i = i + 1) {
+            var val = 1 + d_fake.get(i);
+            if (val > 0) { sum = sum + val; }
+        }
+        return sum / d_fake.size;
+    }
+}
+
+# ============================================================
+# GAN TRAINER
+# ============================================================
+
+class GANTrainer {
+    var generator;
+    var discriminator;
+    var g_optimizer;
+    var d_optimizer;
+    var loss_fn;
+    var latent_dim;
+    
+    func init(gen, disc, g_lr, d_lr, z_dim) {
+        this.generator = gen;
+        this.discriminator = disc;
+        this.latent_dim = z_dim;
+        
+        this.loss_fn = new BCELoss();
+        this.loss_fn.init();
+    }
+    
+    func sample_noise(batch_size) {
+        var noise = new List();
+        noise.init();
+        var i = 0;
+        for (i = 0; i < batch_size * this.latent_dim; i = i + 1) {
+            noise.append((random() % 1000) / 500 - 1);
+        }
+        var v = new Variable();
+        v.init(noise, 0);
+        return v;
+    }
+    
+    func train_step(real_data) {
+        var batch_size = 1;
+        
+        # Train Discriminator
+        var z = this.sample_noise(batch_size);
+        var fake_data = this.generator.forward(z);
+        
+        var real_pred = this.discriminator.forward(real_data);
+        var fake_pred = this.discriminator.forward(fake_data);
+        
+        var real_labels = ones(batch_size, 0);
+        var fake_labels = zeros(batch_size, 0);
+        
+        var d_loss_real = this.loss_fn.forward(real_pred, real_labels);
+        var d_loss_fake = this.loss_fn.forward(fake_pred, fake_labels);
+        var d_loss = (d_loss_real + d_loss_fake) / 2;
+        
+        # Train Generator
+        z = this.sample_noise(batch_size);
+        fake_data = this.generator.forward(z);
+        fake_pred = this.discriminator.forward(fake_data);
+        
+        var g_loss = this.loss_fn.forward(fake_pred, real_labels);
+        
+        var result = new Map();
+        result.init();
+        result.put("d_loss", d_loss);
+        result.put("g_loss", g_loss);
+        return result;
+    }
+    
+    func generate(num_samples) {
+        var z = this.sample_noise(num_samples);
+        return this.generator.forward(z);
+    }
+}
+
+# ============================================================
+# WGAN WITH GRADIENT PENALTY
+# ============================================================
+
+class WGANGPTrainer {
+    var generator;
+    var critic;
+    var lambda_gp;
+    var n_critic;
+    var latent_dim;
+    
+    func init(gen, crit, z_dim) {
+        this.generator = gen;
+        this.critic = crit;
+        this.latent_dim = z_dim;
+        this.lambda_gp = 10;
+        this.n_critic = 5;
+    }
+    
+    func gradient_penalty(real, fake) {
+        # Interpolate between real and fake
+        var alpha = (random() % 1000) / 1000;
+        
+        var interpolated = new List();
+        interpolated.init();
+        var i = 0;
+        for (i = 0; i < real.size; i = i + 1) {
+            interpolated.append(alpha * real.get(i) + (1 - alpha) * fake.get(i));
+        }
+        
+        var interp_var = new Variable();
+        interp_var.init(interpolated, 1);
+        
+        var d_interp = this.critic.forward(interp_var);
+        
+        # Compute gradient norm
+        # Penalty = lambda * (||grad|| - 1)^2
+        
+        return 0;
+    }
+    
+    func train_step(real_data) {
+        var batch_size = 1;
+        var loss_fn = new WassersteinLoss();
+        loss_fn.init();
+        
+        # Train Critic multiple times
+        var c_loss = 0;
+        var i = 0;
+        for (i = 0; i < this.n_critic; i = i + 1) {
+            var z = this.sample_noise(batch_size);
+            var fake_data = this.generator.forward(z);
+            
+            var real_score = this.critic.forward(real_data);
+            var fake_score = this.critic.forward(fake_data);
+            
+            var gp = this.gradient_penalty(real_data, fake_data);
+            
+            c_loss = loss_fn.forward_fake(fake_score) - loss_fn.forward_real(real_score) + this.lambda_gp * gp;
+        }
+        
+        # Train Generator
+        var z = this.sample_noise(batch_size);
+        var fake_data = this.generator.forward(z);
+        var fake_score = this.critic.forward(fake_data);
+        
+        var g_loss = -loss_fn.forward_fake(fake_score);
+        
+        var result = new Map();
+        result.init();
+        result.put("c_loss", c_loss);
+        result.put("g_loss", g_loss);
+        return result;
+    }
+    
+    func sample_noise(batch_size) {
+        var noise = new List();
+        noise.init();
+        var i = 0;
+        for (i = 0; i < batch_size * this.latent_dim; i = i + 1) {
+            noise.append((random() % 1000) / 500 - 1);
+        }
+        var v = new Variable();
+        v.init(noise, 0);
+        return v;
+    }
+}

@@ -1,0 +1,164 @@
+# Nux Memory Management Library
+# Direct memory access and hardware-level control
+
+# Memory allocation with specific alignment
+func mem_alloc_aligned(size, alignment) {
+    asm {
+        size
+        alignment
+        OP_MEM_ALLOC_ALIGNED
+    }
+}
+
+# Physical memory allocation
+func mem_alloc_physical(size) {
+    asm {
+        size
+        OP_MEM_ALLOC_PHYSICAL
+    }
+}
+
+# Memory mapping (mmap-like)
+func mem_map(addr, size, prot, flags) {
+    asm {
+        addr
+        size
+        prot
+        flags
+        OP_MEM_MAP
+    }
+}
+
+# Memory unmap
+func mem_unmap(addr, size) {
+    asm {
+        addr
+        size
+        OP_MEM_UNMAP
+    }
+}
+
+# Direct memory read/write
+func mem_read8(addr) {
+    asm {
+        "MOV RAX, [" addr "]"
+        "AND RAX, 0xFF"
+    }
+}
+
+func mem_write8(addr, value) {
+    asm {
+        "MOV BYTE [" addr "], " value
+    }
+}
+
+func mem_read16(addr) {
+    asm {
+        "MOV RAX, [" addr "]"
+        "AND RAX, 0xFFFF"
+    }
+}
+
+func mem_write16(addr, value) {
+    asm {
+        "MOV WORD [" addr "], " value
+    }
+}
+
+func mem_read32(addr) {
+    asm {
+        "MOV EAX, [" addr "]"
+    }
+}
+
+func mem_write32(addr, value) {
+    asm {
+        "MOV DWORD [" addr "], " value
+    }
+}
+
+func mem_read64(addr) {
+    asm {
+        "MOV RAX, [" addr "]"
+    }
+}
+
+func mem_write64(addr, value) {
+    asm {
+        "MOV QWORD [" addr "], " value
+    }
+}
+
+# Memory barriers
+func mem_barrier() {
+    asm {
+        "MFENCE"
+    }
+}
+
+func mem_barrier_load() {
+    asm {
+        "LFENCE"
+    }
+}
+
+func mem_barrier_store() {
+    asm {
+        "SFENCE"
+    }
+}
+
+# Cache control
+func cache_flush(addr, size) {
+    asm {
+        addr
+        size
+        OP_CACHE_FLUSH
+    }
+}
+
+func cache_invalidate(addr, size) {
+    asm {
+        addr
+        size
+        OP_CACHE_INVALIDATE
+    }
+}
+
+# Memory protection
+var PROT_READ = 1;
+var PROT_WRITE = 2;
+var PROT_EXEC = 4;
+var PROT_NONE = 0;
+
+func mem_protect(addr, size, prot) {
+    asm {
+        addr
+        size
+        prot
+        OP_MEM_PROTECT
+    }
+}
+
+# DMA operations
+func dma_alloc(size) {
+    asm {
+        size
+        OP_DMA_ALLOC
+    }
+}
+
+func dma_free(addr) {
+    asm {
+        addr
+        OP_DMA_FREE
+    }
+}
+
+func dma_map(addr, size) {
+    asm {
+        addr
+        size
+        OP_DMA_MAP
+    }
+}

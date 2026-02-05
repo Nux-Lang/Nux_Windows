@@ -1,0 +1,159 @@
+# Nux Testing Framework
+# Unit testing, assertions, and mocking
+
+class TestSuite {
+    var name;
+    var tests;
+    var passed;
+    var failed;
+    
+    func init(suite_name) {
+        this.name = suite_name;
+        this.tests = new List();
+        this.tests.init();
+        this.passed = 0;
+        this.failed = 0;
+    }
+    
+    func add_test(test_name, test_func) {
+        var test = new Map();
+        test.init();
+        test.put("name", test_name);
+        test.put("func", test_func);
+        
+        this.tests.append(test);
+    }
+    
+    func run() {
+        println("Running test suite: ");
+        println(this.name);
+        
+        var i = 0;
+        for (i = 0; i < this.tests.length(); i = i + 1) {
+            var test = this.tests.get(i);
+            var test_name = test.get("name");
+            var test_func = test.get("func");
+            
+            println("  Test: ");
+            println(test_name);
+            
+            var result = test_func();
+            
+            if (result == 1) {
+                println("    PASS");
+                this.passed = this.passed + 1;
+            }
+            if (result == 0) {
+                println("    FAIL");
+                this.failed = this.failed + 1;
+            }
+        }
+        
+        println("Results: ");
+        println(this.passed);
+        println(" passed, ");
+        println(this.failed);
+        println(" failed");
+    }
+}
+
+func assert_equal(actual, expected) {
+    if (actual == expected) {
+        return 1;
+    }
+    
+    println("Assertion failed: expected ");
+    println(expected);
+    println(" but got ");
+    println(actual);
+    
+    return 0;
+}
+
+func assert_not_equal(actual, expected) {
+    if (actual != expected) {
+        return 1;
+    }
+    
+    println("Assertion failed: values should not be equal");
+    return 0;
+}
+
+func assert_true(condition) {
+    if (condition == 1) {
+        return 1;
+    }
+    
+    println("Assertion failed: expected true");
+    return 0;
+}
+
+func assert_false(condition) {
+    if (condition == 0) {
+        return 1;
+    }
+    
+    println("Assertion failed: expected false");
+    return 0;
+}
+
+class Mock {
+    var call_count;
+    var call_args;
+    var return_value;
+    
+    func init() {
+        this.call_count = 0;
+        this.call_args = new List();
+        this.call_args.init();
+    }
+    
+    func set_return_value(value) {
+        this.return_value = value;
+    }
+    
+    func call(args) {
+        this.call_count = this.call_count + 1;
+        this.call_args.append(args);
+        return this.return_value;
+    }
+    
+    func assert_called() {
+        return this.call_count > 0;
+    }
+    
+    func assert_called_times(count) {
+        return this.call_count == count;
+    }
+}
+
+class Benchmark {
+    var name;
+    var iterations;
+    
+    func init(bench_name, iters) {
+        this.name = bench_name;
+        this.iterations = iters;
+    }
+    
+    func run(func_to_bench) {
+        var start_time = rdtsc();
+        
+        var i = 0;
+        for (i = 0; i < this.iterations; i = i + 1) {
+            func_to_bench();
+        }
+        
+        var end_time = rdtsc();
+        var elapsed = end_time - start_time;
+        
+        println("Benchmark: ");
+        println(this.name);
+        println("  Iterations: ");
+        println(this.iterations);
+        println("  Total cycles: ");
+        println(elapsed);
+        println("  Avg cycles/iter: ");
+        println(elapsed / this.iterations);
+    }
+}

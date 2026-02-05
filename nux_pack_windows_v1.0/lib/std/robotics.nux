@@ -1,0 +1,200 @@
+# Nux Robotics Library
+# Control systems and robotics algorithms
+
+import "ai.tensor";
+
+# PID Controller
+class PIDController {
+    var kp;
+    var ki;
+    var kd;
+    var integral;
+    var prev_error;
+    var output_min;
+    var output_max;
+    
+    func init(p, i, d) {
+        this.kp = p;
+        this.ki = i;
+        this.kd = d;
+        this.integral = 0;
+        this.prev_error = 0;
+        this.output_min = 0 - 999999;
+        this.output_max = 999999;
+    }
+    
+    func compute(setpoint, measurement, dt) {
+        var error = setpoint - measurement;
+        
+        this.integral = this.integral + error * dt;
+        var derivative = (error - this.prev_error) / dt;
+        
+        var output = this.kp * error + this.ki * this.integral + this.kd * derivative;
+        
+        if (output > this.output_max) {
+            output = this.output_max;
+        }
+        if (output < this.output_min) {
+            output = this.output_min;
+        }
+        
+        this.prev_error = error;
+        return output;
+    }
+    
+    func reset() {
+        this.integral = 0;
+        this.prev_error = 0;
+    }
+}
+
+# Kalman Filter
+class KalmanFilter {
+    var state;
+    var covariance;
+    var process_noise;
+    var measurement_noise;
+    
+    func init(initial_state, initial_cov) {
+        this.state = initial_state;
+        this.covariance = initial_cov;
+        this.process_noise = 0.01;
+        this.measurement_noise = 0.1;
+    }
+    
+    func predict(dt) {
+        this.covariance = this.covariance + this.process_noise;
+    }
+    
+    func update(measurement) {
+        var kalman_gain = this.covariance / (this.covariance + this.measurement_noise);
+        this.state = this.state + kalman_gain * (measurement - this.state);
+        this.covariance = (1 - kalman_gain) * this.covariance;
+    }
+}
+
+# Inverse Kinematics (2D, 2-link arm)
+func inverse_kinematics_2d(target_x, target_y, l1, l2) {
+    var distance = sqrt(target_x * target_x + target_y * target_y);
+    
+    if (distance > l1 + l2) {
+        return 0;
+    }
+    
+    var cos_theta2 = (distance * distance - l1 * l1 - l2 * l2) / (2 * l1 * l2);
+    var theta2 = acos(cos_theta2);
+    
+    var k1 = l1 + l2 * cos(theta2);
+    var k2 = l2 * sin(theta2);
+    var theta1 = atan2(target_y, target_x) - atan2(k2, k1);
+    
+    var result = mem_alloc_aligned(16, 8);
+    mem_write64(result, theta1);
+    mem_write64(result + 8, theta2);
+    return result;
+}
+
+# Path planning (A* algorithm)
+class AStarPlanner {
+    var grid;
+    var width;
+    var height;
+    
+    func init(w, h) {
+        this.width = w;
+        this.height = h;
+        this.grid = mem_alloc_aligned(w * h * 8, 8);
+    }
+    
+    func set_obstacle(x, y) {
+        mem_write64(this.grid + (y * this.width + x) * 8, 1);
+    }
+    
+    func find_path(start_x, start_y, goal_x, goal_y) {
+        var path = new List();
+        path.init();
+        
+        # A* implementation
+        # ... (priority queue, open/closed sets)
+        
+        return path;
+    }
+    
+    func heuristic(x1, y1, x2, y2) {
+        var dx = x2 - x1;
+        var dy = y2 - y1;
+        if (dx < 0) { dx = 0 - dx; }
+        if (dy < 0) { dy = 0 - dy; }
+        return dx + dy;
+    }
+}
+
+# SLAM (Simplified)
+class SLAM {
+    var robot_pose;
+    var landmarks;
+    var map;
+    
+    func init() {
+        this.robot_pose = mem_alloc_aligned(24, 8);
+        this.landmarks = new List();
+        this.landmarks.init();
+    }
+    
+    func update_pose(odometry_x, odometry_y, odometry_theta) {
+        var x = mem_read64(this.robot_pose);
+        var y = mem_read64(this.robot_pose + 8);
+        var theta = mem_read64(this.robot_pose + 16);
+        
+        mem_write64(this.robot_pose, x + odometry_x);
+        mem_write64(this.robot_pose + 8, y + odometry_y);
+        mem_write64(this.robot_pose + 16, theta + odometry_theta);
+    }
+    
+    func add_landmark(range, bearing) {
+        var x = mem_read64(this.robot_pose);
+        var y = mem_read64(this.robot_pose + 8);
+        var theta = mem_read64(this.robot_pose + 16);
+        
+        var landmark_x = x + range * cos(theta + bearing);
+        var landmark_y = y + range * sin(theta + bearing);
+        
+        var landmark = mem_alloc_aligned(16, 8);
+        mem_write64(landmark, landmark_x);
+        mem_write64(landmark + 8, landmark_y);
+        
+        this.landmarks.append(landmark);
+    }
+}
+
+# Motor control
+class StepperMotor {
+    var position;
+    var target_position;
+    var speed;
+    var acceleration;
+    
+    func init() {
+        this.position = 0;
+        this.target_position = 0;
+        this.speed = 0;
+        this.acceleration = 100;
+    }
+    
+    func move_to(target) {
+        this.target_position = target;
+    }
+    
+    func update(dt) {
+        var error = this.target_position - this.position;
+        
+        if (error > 0) {
+            this.speed = this.speed + this.acceleration * dt;
+        }
+        if (error < 0) {
+            this.speed = this.speed - this.acceleration * dt;
+        }
+        
+        this.position = this.position + this.speed * dt;
+    }
+}

@@ -1,0 +1,182 @@
+# Nux Virtual Environment Library
+# Isolated environments for dependency management
+
+import "std.collections";
+import "std.file";
+
+class VirtualEnvironment {
+    var name;
+    var path;
+    var packages;
+    var interpreter_path;
+    var active;
+    
+    func init(env_name, base_path) {
+        this.name = env_name;
+        this.path = base_path + "/" + env_name;
+        this.active = 0;
+        
+        this.packages = new Map();
+        this.packages.init();
+        
+        this.create_structure();
+    }
+    
+    func create_structure() {
+        # Create directory structure
+        dir_create(this.path);
+        dir_create(this.path + "/bin");
+        dir_create(this.path + "/lib");
+        dir_create(this.path + "/include");
+        dir_create(this.path + "/packages");
+        
+        # Copy interpreter
+        this.interpreter_path = this.path + "/bin/nux";
+        file_copy("/usr/local/bin/nux", this.interpreter_path);
+    }
+    
+    func activate() {
+        this.active = 1;
+        
+        # Modify environment variables
+        var old_path = env_get("PATH");
+        env_set("PATH", this.path + "/bin:" + old_path);
+        env_set("NUX_VENV", this.path);
+        env_set("NUX_VENV_NAME", this.name);
+        
+        println("Virtual environment '");
+        println(this.name);
+        println("' activated");
+    }
+    
+    func deactivate() {
+        this.active = 0;
+        
+        # Restore environment
+        env_set("NUX_VENV", "");
+        env_set("NUX_VENV_NAME", "");
+        
+        println("Virtual environment deactivated");
+    }
+    
+    func install_package(package_name, version) {
+        var pkg_path = this.path + "/packages/" + package_name;
+        
+        # Download and install package
+        # ... (implementation)
+        
+        this.packages.put(package_name, version);
+        
+        # Update package registry
+        this.save_package_list();
+    }
+    
+    func uninstall_package(package_name) {
+        var pkg_path = this.path + "/packages/" + package_name;
+        
+        # Remove package files
+        dir_remove_recursive(pkg_path);
+        
+        this.packages.put(package_name, 0);
+        this.save_package_list();
+    }
+    
+    func list_packages() {
+        println("Installed packages in '");
+        println(this.name);
+        println("':");
+        
+        # Iterate through packages
+        # ... (implementation)
+    }
+    
+    func save_package_list() {
+        var manifest_file = this.path + "/packages.json";
+        var json = json_stringify(this.packages);
+        
+        var file = file_open(manifest_file, "w");
+        file_write(file, json);
+        file_close(file);
+    }
+    
+    func load_package_list() {
+        var manifest_file = this.path + "/packages.json";
+        
+        if (file_exists(manifest_file) == 0) {
+            return;
+        }
+        
+        var file = file_open(manifest_file, "r");
+        var json = file_read_all(file);
+        file_close(file);
+        
+        this.packages = json_parse(json);
+    }
+}
+
+class PackageManager {
+    var registry_url;
+    var cache_dir;
+    
+    func init(registry) {
+        this.registry_url = registry;
+        this.cache_dir = "/tmp/nux_packages";
+        
+        dir_create(this.cache_dir);
+    }
+    
+    func search(package_name) {
+        var url = this.registry_url + "/search?q=" + package_name;
+        var response = http_get(url);
+        
+        return json_parse(response);
+    }
+    
+    func download(package_name, version) {
+        var url = this.registry_url + "/packages/" + package_name + "/" + version;
+        var cache_path = this.cache_dir + "/" + package_name + "-" + version + ".tar.gz";
+        
+        http_download(url, cache_path);
+        
+        return cache_path;
+    }
+    
+    func resolve_dependencies(package_name, version) {
+        var deps = new List();
+        deps.init();
+        
+        # Fetch package metadata
+        var url = this.registry_url + "/packages/" + package_name + "/" + version + "/metadata";
+        var metadata = json_parse(http_get(url));
+        
+        # Recursively resolve dependencies
+        # ... (implementation)
+        
+        return deps;
+    }
+}
+
+# Global venv functions
+func venv_create(name) {
+    var venv = new VirtualEnvironment();
+    venv.init(name, "./.venvs");
+    return venv;
+}
+
+func venv_activate(name) {
+    var venv = new VirtualEnvironment();
+    venv.init(name, "./.venvs");
+    venv.load_package_list();
+    venv.activate();
+}
+
+func venv_list() {
+    var venvs = dir_list("./.venvs");
+    
+    println("Available virtual environments:");
+    var i = 0;
+    for (i = 0; i < venvs.length(); i = i + 1) {
+        println("  - ");
+        println(venvs.get(i));
+    }
+}

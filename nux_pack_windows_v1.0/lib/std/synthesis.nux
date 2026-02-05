@@ -1,0 +1,200 @@
+# Nux Audio Synthesis Library
+# Sound synthesis and music generation
+
+import "std.dsp";
+
+class Oscillator {
+    var frequency;
+    var phase;
+    var sample_rate;
+    var waveform;
+    
+    func init(freq, sr) {
+        this.frequency = freq;
+        this.sample_rate = sr;
+        this.phase = 0;
+        this.waveform = 0;
+    }
+    
+    func next_sample() {
+        var sample = 0;
+        
+        if (this.waveform == 0) {
+            sample = sin(2 * 3.14159 * this.phase);
+        }
+        if (this.waveform == 1) {
+            if (this.phase < 0.5) {
+                sample = 1;
+            }
+            if (this.phase >= 0.5) {
+                sample = 0 - 1;
+            }
+        }
+        if (this.waveform == 2) {
+            sample = 2 * this.phase - 1;
+        }
+        if (this.waveform == 3) {
+            sample = 1 - 2 * (this.phase - 0.5);
+            if (sample < 0) {
+                sample = 0 - sample;
+            }
+            sample = 2 * sample - 1;
+        }
+        
+        this.phase = this.phase + this.frequency / this.sample_rate;
+        if (this.phase >= 1) {
+            this.phase = this.phase - 1;
+        }
+        
+        return sample;
+    }
+}
+
+class ADSR {
+    var attack_time;
+    var decay_time;
+    var sustain_level;
+    var release_time;
+    var state;
+    var time;
+    var sample_rate;
+    
+    func init(a, d, s, r, sr) {
+        this.attack_time = a;
+        this.decay_time = d;
+        this.sustain_level = s;
+        this.release_time = r;
+        this.sample_rate = sr;
+        this.state = 0;
+        this.time = 0;
+    }
+    
+    func note_on() {
+        this.state = 1;
+        this.time = 0;
+    }
+    
+    func note_off() {
+        this.state = 4;
+        this.time = 0;
+    }
+    
+    func next_sample() {
+        var envelope = 0;
+        
+        if (this.state == 1) {
+            envelope = this.time / this.attack_time;
+            if (envelope >= 1) {
+                envelope = 1;
+                this.state = 2;
+                this.time = 0;
+            }
+        }
+        if (this.state == 2) {
+            envelope = 1 - (1 - this.sustain_level) * (this.time / this.decay_time);
+            if (envelope <= this.sustain_level) {
+                envelope = this.sustain_level;
+                this.state = 3;
+            }
+        }
+        if (this.state == 3) {
+            envelope = this.sustain_level;
+        }
+        if (this.state == 4) {
+            envelope = this.sustain_level * (1 - this.time / this.release_time);
+            if (envelope <= 0) {
+                envelope = 0;
+                this.state = 0;
+            }
+        }
+        
+        this.time = this.time + 1 / this.sample_rate;
+        return envelope;
+    }
+}
+
+class Synthesizer {
+    var oscillators;
+    var envelope;
+    var filter;
+    var sample_rate;
+    
+    func init(sr) {
+        this.sample_rate = sr;
+        
+        this.oscillators = new List();
+        this.oscillators.init();
+        
+        this.envelope = new ADSR();
+        this.envelope.init(0.01, 0.1, 0.7, 0.2, sr);
+    }
+    
+    func add_oscillator(freq, waveform) {
+        var osc = new Oscillator();
+        osc.init(freq, this.sample_rate);
+        osc.waveform = waveform;
+        
+        this.oscillators.append(osc);
+    }
+    
+    func render(duration) {
+        var num_samples = duration * this.sample_rate;
+        var buffer = mem_alloc_aligned(num_samples * 8, 64);
+        
+        this.envelope.note_on();
+        
+        var i = 0;
+        for (i = 0; i < num_samples; i = i + 1) {
+            var sample = 0;
+            
+            var j = 0;
+            for (j = 0; j < this.oscillators.length(); j = j + 1) {
+                var osc = this.oscillators.get(j);
+                sample = sample + osc.next_sample();
+            }
+            
+            sample = sample / this.oscillators.length();
+            sample = sample * this.envelope.next_sample();
+            
+            mem_write64(buffer + i * 8, sample);
+        }
+        
+        return buffer;
+    }
+}
+
+func note_to_frequency(note_number) {
+    return 440 * pow(2, (note_number - 69) / 12);
+}
+
+class MIDISequencer {
+    var tracks;
+    var tempo;
+    var ticks_per_beat;
+    
+    func init() {
+        this.tracks = new List();
+        this.tracks.init();
+        this.tempo = 120;
+        this.ticks_per_beat = 480;
+    }
+    
+    func add_note(track, note, velocity, start_time, duration) {
+        var event = new Map();
+        event.init();
+        event.put("type", "note");
+        event.put("note", note);
+        event.put("velocity", velocity);
+        event.put("start", start_time);
+        event.put("duration", duration);
+        
+        if (track >= this.tracks.length()) {
+            var new_track = new List();
+            new_track.init();
+            this.tracks.append(new_track);
+        }
+        
+        var t = this.tracks.get(track);
+        t.append(event);
+    }
+}

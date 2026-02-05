@@ -1,0 +1,206 @@
+# Nux Optimizer Library
+# Gradient descent and optimization algorithms
+
+import "ai.tensor";
+
+# SGD (Stochastic Gradient Descent)
+class SGD {
+    var learning_rate;
+    var momentum;
+    var velocity;
+    
+    func init(lr, mom) {
+        this.learning_rate = lr;
+        this.momentum = mom;
+    }
+    
+    func step(params, gradients) {
+        # params -= learning_rate * gradients
+        var i = 0;
+        for (i = 0; i < params.size; i = i + 1) {
+            var param = mem_read64(params.data + i * 8);
+            var grad = mem_read64(gradients.data + i * 8);
+            
+            var update = param - this.learning_rate * grad;
+            mem_write64(params.data + i * 8, update);
+        }
+    }
+}
+
+# Adam Optimizer
+class Adam {
+    var learning_rate;
+    var beta1;
+    var beta2;
+    var epsilon;
+    var m;
+    var v;
+    var t;
+    
+    func init(lr, b1, b2, eps) {
+        this.learning_rate = lr;
+        this.beta1 = b1;
+        this.beta2 = b2;
+        this.epsilon = eps;
+        this.t = 0;
+    }
+    
+    func step(params, gradients) {
+        this.t = this.t + 1;
+        
+        # Initialize m and v on first call
+        if (this.t == 1) {
+            this.m = new Tensor();
+            this.m.init(params.shape, params.ndim);
+            
+            this.v = new Tensor();
+            this.v.init(params.shape, params.ndim);
+        }
+        
+        var i = 0;
+        for (i = 0; i < params.size; i = i + 1) {
+            var grad = mem_read64(gradients.data + i * 8);
+            
+            # Update biased first moment estimate
+            var m_val = mem_read64(this.m.data + i * 8);
+            m_val = this.beta1 * m_val + (1 - this.beta1) * grad;
+            mem_write64(this.m.data + i * 8, m_val);
+            
+            # Update biased second raw moment estimate
+            var v_val = mem_read64(this.v.data + i * 8);
+            v_val = this.beta2 * v_val + (1 - this.beta2) * grad * grad;
+            mem_write64(this.v.data + i * 8, v_val);
+            
+            # Compute bias-corrected estimates
+            var m_hat = m_val / (1 - pow(this.beta1, this.t));
+            var v_hat = v_val / (1 - pow(this.beta2, this.t));
+            
+            # Update parameters
+            var param = mem_read64(params.data + i * 8);
+            param = param - this.learning_rate * m_hat / (sqrt(v_hat) + this.epsilon);
+            mem_write64(params.data + i * 8, param);
+        }
+    }
+}
+
+# RMSprop
+class RMSprop {
+    var learning_rate;
+    var decay;
+    var epsilon;
+    var cache;
+    
+    func init(lr, dec, eps) {
+        this.learning_rate = lr;
+        this.decay = dec;
+        this.epsilon = eps;
+    }
+    
+    func step(params, gradients) {
+        if (this.cache == 0) {
+            this.cache = new Tensor();
+            this.cache.init(params.shape, params.ndim);
+        }
+        
+        var i = 0;
+        for (i = 0; i < params.size; i = i + 1) {
+            var grad = mem_read64(gradients.data + i * 8);
+            
+            # Update cache
+            var cache_val = mem_read64(this.cache.data + i * 8);
+            cache_val = this.decay * cache_val + (1 - this.decay) * grad * grad;
+            mem_write64(this.cache.data + i * 8, cache_val);
+            
+            # Update parameters
+            var param = mem_read64(params.data + i * 8);
+            param = param - this.learning_rate * grad / (sqrt(cache_val) + this.epsilon);
+            mem_write64(params.data + i * 8, param);
+        }
+    }
+}
+
+# Learning rate schedulers
+class StepLR {
+    var optimizer;
+    var step_size;
+    var gamma;
+    var last_epoch;
+    
+    func init(opt, step, gam) {
+        this.optimizer = opt;
+        this.step_size = step;
+        this.gamma = gam;
+        this.last_epoch = 0;
+    }
+    
+    func step() {
+        this.last_epoch = this.last_epoch + 1;
+        
+        if (this.last_epoch % this.step_size == 0) {
+            this.optimizer.learning_rate = this.optimizer.learning_rate * this.gamma;
+        }
+    }
+}
+
+class CosineAnnealingLR {
+    var optimizer;
+    var T_max;
+    var eta_min;
+    var last_epoch;
+    var base_lr;
+    
+    func init(opt, t_max, eta) {
+        this.optimizer = opt;
+        this.T_max = t_max;
+        this.eta_min = eta;
+        this.last_epoch = 0;
+        this.base_lr = opt.learning_rate;
+    }
+    
+    func step() {
+        this.last_epoch = this.last_epoch + 1;
+        
+        var cos_val = cos(3.14159 * this.last_epoch / this.T_max);
+        var lr = this.eta_min + (this.base_lr - this.eta_min) * (1 + cos_val) / 2;
+        
+        this.optimizer.learning_rate = lr;
+    }
+}
+
+# Gradient clipping
+func clip_grad_norm(gradients, max_norm) {
+    var total_norm = 0;
+    var i = 0;
+    
+    # Calculate total norm
+    for (i = 0; i < gradients.size; i = i + 1) {
+        var grad = mem_read64(gradients.data + i * 8);
+        total_norm = total_norm + grad * grad;
+    }
+    total_norm = sqrt(total_norm);
+    
+    # Clip if necessary
+    if (total_norm > max_norm) {
+        var clip_coef = max_norm / (total_norm + 1e-6);
+        for (i = 0; i < gradients.size; i = i + 1) {
+            var grad = mem_read64(gradients.data + i * 8);
+            mem_write64(gradients.data + i * 8, grad * clip_coef);
+        }
+    }
+}
+
+func clip_grad_value(gradients, clip_value) {
+    var i = 0;
+    for (i = 0; i < gradients.size; i = i + 1) {
+        var grad = mem_read64(gradients.data + i * 8);
+        
+        if (grad > clip_value) {
+            grad = clip_value;
+        }
+        if (grad < (0 - clip_value)) {
+            grad = 0 - clip_value;
+        }
+        
+        mem_write64(gradients.data + i * 8, grad);
+    }
+}

@@ -1,0 +1,203 @@
+# Nux Financial Computing Library
+# Trading algorithms and financial analysis
+
+import "ai.datascience";
+
+class TimeSeries {
+    var data;
+    var timestamps;
+    var length;
+    
+    func init(len) {
+        this.length = len;
+        this.data = mem_alloc_aligned(len * 8, 8);
+        this.timestamps = mem_alloc_aligned(len * 8, 8);
+    }
+    
+    func sma(period) {
+        var result = mem_alloc_aligned(this.length * 8, 8);
+        
+        var i = period - 1;
+        for (i = period - 1; i < this.length; i = i + 1) {
+            var sum = 0;
+            var j = 0;
+            for (j = 0; j < period; j = j + 1) {
+                sum = sum + mem_read64(this.data + (i - j) * 8);
+            }
+            mem_write64(result + i * 8, sum / period);
+        }
+        
+        return result;
+    }
+    
+    func ema(period) {
+        var result = mem_alloc_aligned(this.length * 8, 8);
+        var alpha = 2 / (period + 1);
+        
+        mem_write64(result, mem_read64(this.data));
+        
+        var i = 1;
+        for (i = 1; i < this.length; i = i + 1) {
+            var prev_ema = mem_read64(result + (i - 1) * 8);
+            var current = mem_read64(this.data + i * 8);
+            var ema = alpha * current + (1 - alpha) * prev_ema;
+            mem_write64(result + i * 8, ema);
+        }
+        
+        return result;
+    }
+    
+    func rsi(period) {
+        var gains = mem_alloc_aligned(this.length * 8, 8);
+        var losses = mem_alloc_aligned(this.length * 8, 8);
+        
+        var i = 1;
+        for (i = 1; i < this.length; i = i + 1) {
+            var change = mem_read64(this.data + i * 8) - mem_read64(this.data + (i - 1) * 8);
+            
+            if (change > 0) {
+                mem_write64(gains + i * 8, change);
+            }
+            if (change < 0) {
+                mem_write64(losses + i * 8, 0 - change);
+            }
+        }
+        
+        var avg_gain = mean(gains + period * 8, period);
+        var avg_loss = mean(losses + period * 8, period);
+        
+        var rs = avg_gain / avg_loss;
+        return 100 - (100 / (1 + rs));
+    }
+}
+
+class TradingStrategy {
+    var name;
+    var positions;
+    var capital;
+    var pnl;
+    
+    func init(strategy_name, initial_capital) {
+        this.name = strategy_name;
+        this.capital = initial_capital;
+        this.pnl = 0;
+        
+        this.positions = new Map();
+        this.positions.init();
+    }
+    
+    func buy(symbol, quantity, price) {
+        var cost = quantity * price;
+        
+        if (cost > this.capital) {
+            return 0;
+        }
+        
+        this.capital = this.capital - cost;
+        
+        var current_pos = this.positions.get(symbol);
+        if (current_pos == 0) {
+            current_pos = 0;
+        }
+        
+        this.positions.put(symbol, current_pos + quantity);
+        return 1;
+    }
+    
+    func sell(symbol, quantity, price) {
+        var current_pos = this.positions.get(symbol);
+        
+        if (current_pos < quantity) {
+            return 0;
+        }
+        
+        var revenue = quantity * price;
+        this.capital = this.capital + revenue;
+        
+        this.positions.put(symbol, current_pos - quantity);
+        return 1;
+    }
+}
+
+class OptionPricer {
+    var spot_price;
+    var strike_price;
+    var time_to_expiry;
+    var risk_free_rate;
+    var volatility;
+    
+    func init(spot, strike, time, rate, vol) {
+        this.spot_price = spot;
+        this.strike_price = strike;
+        this.time_to_expiry = time;
+        this.risk_free_rate = rate;
+        this.volatility = vol;
+    }
+    
+    func black_scholes_call() {
+        var d1 = (log(this.spot_price / this.strike_price) + (this.risk_free_rate + this.volatility * this.volatility / 2) * this.time_to_expiry) / (this.volatility * sqrt(this.time_to_expiry));
+        
+        var d2 = d1 - this.volatility * sqrt(this.time_to_expiry);
+        
+        var nd1 = this.normal_cdf(d1);
+        var nd2 = this.normal_cdf(d2);
+        
+        var call_price = this.spot_price * nd1 - this.strike_price * exp(0 - this.risk_free_rate * this.time_to_expiry) * nd2;
+        
+        return call_price;
+    }
+    
+    func normal_cdf(x) {
+        return 0.5 * (1 + erf(x / sqrt(2)));
+    }
+}
+
+class Portfolio {
+    var assets;
+    var weights;
+    var returns;
+    
+    func init() {
+        this.assets = new List();
+        this.assets.init();
+        
+        this.weights = new List();
+        this.weights.init();
+    }
+    
+    func add_asset(symbol, weight) {
+        this.assets.append(symbol);
+        this.weights.append(weight);
+    }
+    
+    func calculate_sharpe_ratio(risk_free_rate) {
+        var portfolio_return = 0;
+        var i = 0;
+        
+        for (i = 0; i < this.assets.length(); i = i + 1) {
+            var weight = this.weights.get(i);
+            var asset_return = 0;
+            portfolio_return = portfolio_return + weight * asset_return;
+        }
+        
+        var excess_return = portfolio_return - risk_free_rate;
+        var portfolio_std = 0;
+        
+        return excess_return / portfolio_std;
+    }
+}
+
+func monte_carlo_var(portfolio_value, returns, num_simulations, confidence) {
+    var simulated_returns = mem_alloc_aligned(num_simulations * 8, 8);
+    
+    var i = 0;
+    for (i = 0; i < num_simulations; i = i + 1) {
+        var sim_return = (random() % 1000) / 1000 - 0.5;
+        mem_write64(simulated_returns + i * 8, sim_return);
+    }
+    
+    var percentile_idx = num_simulations * (1 - confidence);
+    var var_return = mem_read64(simulated_returns + percentile_idx * 8);
+    
+    return portfolio_value * var_return;
+}

@@ -1,0 +1,234 @@
+# Nux Blockchain Library
+# Cryptocurrency and distributed ledger
+
+import "std.crypto";
+
+class Block {
+    var index;
+    var timestamp;
+    var data;
+    var prev_hash;
+    var hash;
+    var nonce;
+    
+    func init(idx, ts, block_data, prev) {
+        this.index = idx;
+        this.timestamp = ts;
+        this.data = block_data;
+        this.prev_hash = prev;
+        this.nonce = 0;
+    }
+    
+    func calculate_hash() {
+        var data_str = mem_alloc_aligned(1024, 8);
+        # Concatenate: index + timestamp + data + prev_hash + nonce
+        # ... (string concatenation)
+        
+        this.hash = hash_sha256(data_str);
+        return this.hash;
+    }
+    
+    func mine_block(difficulty) {
+        var target = mem_alloc_aligned(64, 8);
+        
+        # Create target with 'difficulty' leading zeros
+        var i = 0;
+        for (i = 0; i < difficulty; i = i + 1) {
+            mem_write8(target + i, 48);
+        }
+        
+        for (;;) {
+            this.calculate_hash();
+            
+            # Check if hash meets difficulty
+            var matches = 1;
+            for (i = 0; i < difficulty; i = i + 1) {
+                if (mem_read8(this.hash + i) != 48) {
+                    matches = 0;
+                    break;
+                }
+            }
+            
+            if (matches == 1) {
+                break;
+            }
+            
+            this.nonce = this.nonce + 1;
+        }
+    }
+}
+
+class Blockchain {
+    var chain;
+    var difficulty;
+    var pending_transactions;
+    var mining_reward;
+    
+    func init(diff) {
+        this.chain = new List();
+        this.chain.init();
+        
+        this.difficulty = diff;
+        this.mining_reward = 100;
+        
+        this.pending_transactions = new List();
+        this.pending_transactions.init();
+        
+        # Create genesis block
+        this.create_genesis_block();
+    }
+    
+    func create_genesis_block() {
+        var genesis = new Block();
+        genesis.init(0, now(), "Genesis Block", 0);
+        genesis.calculate_hash();
+        
+        this.chain.append(genesis);
+    }
+    
+    func get_latest_block() {
+        var len = this.chain.length();
+        return this.chain.get(len - 1);
+    }
+    
+    func mine_pending_transactions(miner_address) {
+        var latest = this.get_latest_block();
+        
+        var block = new Block();
+        block.init(
+            latest.index + 1,
+            now(),
+            this.pending_transactions,
+            latest.hash
+        );
+        
+        block.mine_block(this.difficulty);
+        this.chain.append(block);
+        
+        # Reset pending transactions and reward miner
+        this.pending_transactions = new List();
+        this.pending_transactions.init();
+        
+        # Create reward transaction
+        # ... (add mining reward)
+    }
+    
+    func add_transaction(transaction) {
+        this.pending_transactions.append(transaction);
+    }
+    
+    func is_chain_valid() {
+        var i = 1;
+        var len = this.chain.length();
+        
+        for (i = 1; i < len; i = i + 1) {
+            var current = this.chain.get(i);
+            var previous = this.chain.get(i - 1);
+            
+            # Verify hash
+            var calc_hash = current.calculate_hash();
+            if (calc_hash != current.hash) {
+                return 0;
+            }
+            
+            # Verify chain link
+            if (current.prev_hash != previous.hash) {
+                return 0;
+            }
+        }
+        
+        return 1;
+    }
+}
+
+class Transaction {
+    var from_address;
+    var to_address;
+    var amount;
+    var timestamp;
+    var signature;
+    
+    func init(from, to, amt) {
+        this.from_address = from;
+        this.to_address = to;
+        this.amount = amt;
+        this.timestamp = now();
+    }
+    
+    func calculate_hash() {
+        var data = mem_alloc_aligned(512, 8);
+        # Concatenate transaction data
+        # ... (implementation)
+        
+        return hash_sha256(data);
+    }
+    
+    func sign_transaction(private_key) {
+        var hash = this.calculate_hash();
+        this.signature = encrypt_aes(hash, private_key);
+    }
+    
+    func is_valid() {
+        if (this.from_address == 0) {
+            return 1;
+        }
+        
+        if (this.signature == 0) {
+            return 0;
+        }
+        
+        # Verify signature
+        # ... (cryptographic verification)
+        
+        return 1;
+    }
+}
+
+# Merkle Tree
+class MerkleTree {
+    var root;
+    var leaves;
+    
+    func init(data_blocks) {
+        this.leaves = new List();
+        this.leaves.init();
+        
+        # Hash all data blocks
+        var i = 0;
+        for (i = 0; i < data_blocks.length(); i = i + 1) {
+            var block = data_blocks.get(i);
+            var hash = hash_sha256(block);
+            this.leaves.append(hash);
+        }
+        
+        this.root = this.build_tree(this.leaves);
+    }
+    
+    func build_tree(nodes) {
+        if (nodes.length() == 1) {
+            return nodes.get(0);
+        }
+        
+        var parent_nodes = new List();
+        parent_nodes.init();
+        
+        var i = 0;
+        for (i = 0; i < nodes.length(); i = i + 2) {
+            var left = nodes.get(i);
+            var right = left;
+            
+            if (i + 1 < nodes.length()) {
+                right = nodes.get(i + 1);
+            }
+            
+            # Concatenate and hash
+            var combined = mem_alloc_aligned(128, 8);
+            # ... (combine left + right)
+            var parent_hash = hash_sha256(combined);
+            
+            parent_nodes.append(parent_hash);
+        }
+        
+        return this.build_tree(parent_nodes);
+    }
+}

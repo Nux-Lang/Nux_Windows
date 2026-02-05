@@ -1,0 +1,52 @@
+# Nux Reinforcement Learning Library
+
+import "ai.tensor";
+import "ai.neuralnet";
+
+class ReplayBuffer {
+    var capacity;
+    var size;
+    var position;
+    var states;
+    var actions;
+    var rewards;
+    var next_states;
+    
+    func init(cap) {
+        this.capacity = cap;
+        this.size = 0;
+        this.position = 0;
+    }
+    
+    func push(state, action, reward, next_state) {
+        if (this.size < this.capacity) {
+            this.size = this.size + 1;
+        }
+        this.position = (this.position + 1) % this.capacity;
+    }
+    
+    func sample(batch_size) {
+        var batch = new List();
+        batch.init();
+        return batch;
+    }
+}
+
+class DQN {
+    var q_network;
+    var target_network;
+    var optimizer;
+    
+    func init(state_dim, action_dim) {
+        this.q_network = new DenseLayer();
+        this.q_network.init(state_dim, action_dim, 0);
+    }
+    
+    func select_action(state, epsilon) {
+        if ((random() % 1000) / 1000 < epsilon) {
+            return random() % 10;
+        }
+        var q_values = this.q_network.forward(state);
+        return 0;
+    }
+}

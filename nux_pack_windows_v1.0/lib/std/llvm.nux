@@ -1,0 +1,308 @@
+# Nux LLVM Library
+# LLVM IR generation and optimization
+
+import "std.compiler";
+
+class LLVMContext {
+    var context_ptr;
+    
+    func init() {
+        asm {
+            OP_LLVM_CREATE_CONTEXT
+        }
+    }
+    
+    func dispose() {
+        asm {
+            this.context_ptr
+            OP_LLVM_DISPOSE_CONTEXT
+        }
+    }
+}
+
+class LLVMModule {
+    var module_ptr;
+    var context;
+    var name;
+    
+    func init(module_name, ctx) {
+        this.name = module_name;
+        this.context = ctx;
+        
+        asm {
+            module_name
+            ctx.context_ptr
+            OP_LLVM_CREATE_MODULE
+        }
+    }
+    
+    func add_function(name, return_type, param_types) {
+        var func_type = this.create_function_type(return_type, param_types);
+        
+        asm {
+            this.module_ptr
+            name
+            func_type
+            OP_LLVM_ADD_FUNCTION
+        }
+    }
+    
+    func create_function_type(return_type, param_types) {
+        asm {
+            return_type
+            param_types
+            OP_LLVM_FUNCTION_TYPE
+        }
+    }
+    
+    func verify() {
+        asm {
+            this.module_ptr
+            OP_LLVM_VERIFY_MODULE
+        }
+    }
+    
+    func dump() {
+        asm {
+            this.module_ptr
+            OP_LLVM_DUMP_MODULE
+        }
+    }
+    
+    func write_bitcode(filename) {
+        asm {
+            this.module_ptr
+            filename
+            OP_LLVM_WRITE_BITCODE
+        }
+    }
+}
+
+class LLVMBuilder {
+    var builder_ptr;
+    var context;
+    
+    func init(ctx) {
+        this.context = ctx;
+        
+        asm {
+            ctx.context_ptr
+            OP_LLVM_CREATE_BUILDER
+        }
+    }
+    
+    func position_at_end(basic_block) {
+        asm {
+            this.builder_ptr
+            basic_block
+            OP_LLVM_POSITION_AT_END
+        }
+    }
+    
+    func build_ret(value) {
+        asm {
+            this.builder_ptr
+            value
+            OP_LLVM_BUILD_RET
+        }
+    }
+    
+    func build_add(lhs, rhs, name) {
+        asm {
+            this.builder_ptr
+            lhs
+            rhs
+            name
+            OP_LLVM_BUILD_ADD
+        }
+    }
+    
+    func build_sub(lhs, rhs, name) {
+        asm {
+            this.builder_ptr
+            lhs
+            rhs
+            name
+            OP_LLVM_BUILD_SUB
+        }
+    }
+    
+    func build_mul(lhs, rhs, name) {
+        asm {
+            this.builder_ptr
+            lhs
+            rhs
+            name
+            OP_LLVM_BUILD_MUL
+        }
+    }
+    
+    func build_call(function, args, name) {
+        asm {
+            this.builder_ptr
+            function
+            args
+            name
+            OP_LLVM_BUILD_CALL
+        }
+    }
+    
+    func build_alloca(type, name) {
+        asm {
+            this.builder_ptr
+            type
+            name
+            OP_LLVM_BUILD_ALLOCA
+        }
+    }
+    
+    func build_load(ptr, name) {
+        asm {
+            this.builder_ptr
+            ptr
+            name
+            OP_LLVM_BUILD_LOAD
+        }
+    }
+    
+    func build_store(value, ptr) {
+        asm {
+            this.builder_ptr
+            value
+            ptr
+            OP_LLVM_BUILD_STORE
+        }
+    }
+    
+    func build_br(dest_block) {
+        asm {
+            this.builder_ptr
+            dest_block
+            OP_LLVM_BUILD_BR
+        }
+    }
+    
+    func build_cond_br(condition, then_block, else_block) {
+        asm {
+            this.builder_ptr
+            condition
+            then_block
+            else_block
+            OP_LLVM_BUILD_COND_BR
+        }
+    }
+}
+
+class LLVMType {
+    var type_ptr;
+    
+    func i32(context) {
+        asm {
+            context.context_ptr
+            OP_LLVM_INT32_TYPE
+        }
+    }
+    
+    func i64(context) {
+        asm {
+            context.context_ptr
+            OP_LLVM_INT64_TYPE
+        }
+    }
+    
+    func float_type(context) {
+        asm {
+            context.context_ptr
+            OP_LLVM_FLOAT_TYPE
+        }
+    }
+    
+    func double_type(context) {
+        asm {
+            context.context_ptr
+            OP_LLVM_DOUBLE_TYPE
+        }
+    }
+    
+    func pointer_type(element_type) {
+        asm {
+            element_type
+            OP_LLVM_POINTER_TYPE
+        }
+    }
+}
+
+class LLVMOptimizer {
+    var pass_manager;
+    
+    func init(module) {
+        asm {
+            module.module_ptr
+            OP_LLVM_CREATE_PASS_MANAGER
+        }
+    }
+    
+    func add_instruction_combining_pass() {
+        asm {
+            this.pass_manager
+            OP_LLVM_ADD_INSTCOMBINE_PASS
+        }
+    }
+    
+    func add_reassociate_pass() {
+        asm {
+            this.pass_manager
+            OP_LLVM_ADD_REASSOCIATE_PASS
+        }
+    }
+    
+    func add_gvn_pass() {
+        asm {
+            this.pass_manager
+            OP_LLVM_ADD_GVN_PASS
+        }
+    }
+    
+    func add_cfg_simplification_pass() {
+        asm {
+            this.pass_manager
+            OP_LLVM_ADD_CFG_SIMPLIFY_PASS
+        }
+    }
+    
+    func run(module) {
+        asm {
+            this.pass_manager
+            module.module_ptr
+            OP_LLVM_RUN_PASSES
+        }
+    }
+}
+
+class LLVMExecutionEngine {
+    var engine_ptr;
+    
+    func init(module) {
+        asm {
+            module.module_ptr
+            OP_LLVM_CREATE_EXECUTION_ENGINE
+        }
+    }
+    
+    func get_function_address(name) {
+        asm {
+            this.engine_ptr
+            name
+            OP_LLVM_GET_FUNCTION_ADDRESS
+        }
+    }
+    
+    func run_function(function, args) {
+        asm {
+            this.engine_ptr
+            function
+            args
+            OP_LLVM_RUN_FUNCTION
+        }
+    }
+}

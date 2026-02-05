@@ -1,0 +1,196 @@
+# Nux Virtual Machine Library
+# Process VM for portable execution
+
+import "std.collections";
+
+class NuxVM {
+    var stack;
+    var heap;
+    var globals;
+    var call_stack;
+    var program_counter;
+    var bytecode;
+    var running;
+    
+    func init(heap_size) {
+        this.stack = new List();
+        this.stack.init();
+        
+        this.heap = mem_alloc_aligned(heap_size, 4096);
+        
+        this.globals = new Map();
+        this.globals.init();
+        
+        this.call_stack = new List();
+        this.call_stack.init();
+        
+        this.program_counter = 0;
+        this.running = 0;
+    }
+    
+    func load_bytecode(bytecode_array) {
+        this.bytecode = bytecode_array;
+    }
+    
+    func execute() {
+        this.running = 1;
+        this.program_counter = 0;
+        
+        for (;;) {
+            if (this.running == 0) {
+                break;
+            }
+            
+            if (this.program_counter >= this.bytecode.length()) {
+                break;
+            }
+            
+            var opcode = this.bytecode.get(this.program_counter);
+            this.program_counter = this.program_counter + 1;
+            
+            this.execute_instruction(opcode);
+        }
+    }
+    
+    func execute_instruction(opcode) {
+        # PUSH constant
+        if (opcode == 0x01) {
+            var value = this.bytecode.get(this.program_counter);
+            this.program_counter = this.program_counter + 1;
+            this.stack.append(value);
+        }
+        
+        # POP
+        if (opcode == 0x02) {
+            this.stack.remove(this.stack.length() - 1);
+        }
+        
+        # ADD
+        if (opcode == 0x10) {
+            var b = this.stack.get(this.stack.length() - 1);
+            this.stack.remove(this.stack.length() - 1);
+            var a = this.stack.get(this.stack.length() - 1);
+            this.stack.remove(this.stack.length() - 1);
+            
+            this.stack.append(a + b);
+        }
+        
+        # SUB
+        if (opcode == 0x11) {
+            var b = this.stack.get(this.stack.length() - 1);
+            this.stack.remove(this.stack.length() - 1);
+            var a = this.stack.get(this.stack.length() - 1);
+            this.stack.remove(this.stack.length() - 1);
+            
+            this.stack.append(a - b);
+        }
+        
+        # MUL
+        if (opcode == 0x12) {
+            var b = this.stack.get(this.stack.length() - 1);
+            this.stack.remove(this.stack.length() - 1);
+            var a = this.stack.get(this.stack.length() - 1);
+            this.stack.remove(this.stack.length() - 1);
+            
+            this.stack.append(a * b);
+        }
+        
+        # LOAD_GLOBAL
+        if (opcode == 0x20) {
+            var name_idx = this.bytecode.get(this.program_counter);
+            this.program_counter = this.program_counter + 1;
+            
+            var value = this.globals.get(name_idx);
+            this.stack.append(value);
+        }
+        
+        # STORE_GLOBAL
+        if (opcode == 0x21) {
+            var name_idx = this.bytecode.get(this.program_counter);
+            this.program_counter = this.program_counter + 1;
+            
+            var value = this.stack.get(this.stack.length() - 1);
+            this.stack.remove(this.stack.length() - 1);
+            
+            this.globals.put(name_idx, value);
+        }
+        
+        # CALL
+        if (opcode == 0x30) {
+            var func_idx = this.bytecode.get(this.program_counter);
+            this.program_counter = this.program_counter + 1;
+            
+            var num_args = this.bytecode.get(this.program_counter);
+            this.program_counter = this.program_counter + 1;
+            
+            # Save return address
+            var frame = new Map();
+            frame.init();
+            frame.put("return_pc", this.program_counter);
+            
+            this.call_stack.append(frame);
+            
+            # Jump to function
+            this.program_counter = func_idx;
+        }
+        
+        # RETURN
+        if (opcode == 0x31) {
+            if (this.call_stack.length() == 0) {
+                this.running = 0;
+                return;
+            }
+            
+            var frame = this.call_stack.get(this.call_stack.length() - 1);
+            this.call_stack.remove(this.call_stack.length() - 1);
+            
+            this.program_counter = frame.get("return_pc");
+        }
+        
+        # JUMP
+        if (opcode == 0x40) {
+            var target = this.bytecode.get(this.program_counter);
+            this.program_counter = target;
+        }
+        
+        # JUMP_IF_FALSE
+        if (opcode == 0x41) {
+            var target = this.bytecode.get(this.program_counter);
+            this.program_counter = this.program_counter + 1;
+            
+            var condition = this.stack.get(this.stack.length() - 1);
+            this.stack.remove(this.stack.length() - 1);
+            
+            if (condition == 0) {
+                this.program_counter = target;
+            }
+        }
+        
+        # HALT
+        if (opcode == 0xFF) {
+            this.running = 0;
+        }
+    }
+    
+    func get_stack_top() {
+        if (this.stack.length() == 0) {
+            return 0;
+        }
+        return this.stack.get(this.stack.length() - 1);
+    }
+}
+
+# Bytecode opcodes
+var OP_PUSH = 0x01;
+var OP_POP = 0x02;
+var OP_ADD = 0x10;
+var OP_SUB = 0x11;
+var OP_MUL = 0x12;
+var OP_DIV = 0x13;
+var OP_LOAD_GLOBAL = 0x20;
+var OP_STORE_GLOBAL = 0x21;
+var OP_CALL = 0x30;
+var OP_RETURN = 0x31;
+var OP_JUMP = 0x40;
+var OP_JUMP_IF_FALSE = 0x41;
+var OP_HALT = 0xFF;

@@ -1,0 +1,340 @@
+// Nux Standard Library - Data Structures
+// Advanced data structures (Stack, Queue, Set, Map, etc.)
+
+// ===== STACK =====
+
+fn stack_create() {
+    // Create empty stack
+    return {
+        items: [],
+        size: 0
+    };
+}
+
+fn stack_push(stack, item) {
+    // Push item onto stack
+    arr_push(stack.items, item);
+    stack.size = stack.size + 1;
+}
+
+fn stack_pop(stack) {
+    // Pop item from stack
+    if (stack.size == 0) {
+        return null;
+    }
+    
+    stack.size = stack.size - 1;
+    return arr_pop(stack.items);
+}
+
+fn stack_peek(stack) {
+    // Peek at top item
+    if (stack.size == 0) {
+        return null;
+    }
+    
+    return stack.items[stack.size - 1];
+}
+
+fn stack_isEmpty(stack) {
+    // Check if stack is empty
+    return stack.size == 0;
+}
+
+fn stack_size(stack) {
+    // Get stack size
+    return stack.size;
+}
+
+// ===== QUEUE =====
+
+fn queue_create() {
+    // Create empty queue
+    return {
+        items: [],
+        size: 0
+    };
+}
+
+fn queue_enqueue(queue, item) {
+    // Add item to queue
+    arr_push(queue.items, item);
+    queue.size = queue.size + 1;
+}
+
+fn queue_dequeue(queue) {
+    // Remove item from queue
+    if (queue.size == 0) {
+        return null;
+    }
+    
+    queue.size = queue.size - 1;
+    return arr_shift(queue.items);
+}
+
+fn queue_peek(queue) {
+    // Peek at front item
+    if (queue.size == 0) {
+        return null;
+    }
+    
+    return queue.items[0];
+}
+
+fn queue_isEmpty(queue) {
+    // Check if queue is empty
+    return queue.size == 0;
+}
+
+fn queue_size(queue) {
+    // Get queue size
+    return queue.size;
+}
+
+// ===== SET =====
+
+fn set_create() {
+    // Create empty set
+    return {
+        items: [],
+        size: 0
+    };
+}
+
+fn set_add(set, item) {
+    // Add item to set
+    if (!set_has(set, item)) {
+        arr_push(set.items, item);
+        set.size = set.size + 1;
+        return true;
+    }
+    return false;
+}
+
+fn set_delete(set, item) {
+    // Remove item from set
+    let index = arr_indexOf(set.items, item);
+    if (index != -1) {
+        // Remove item
+        let i = index;
+        while (i < set.size - 1) {
+            set.items[i] = set.items[i + 1];
+            i = i + 1;
+        }
+        set.size = set.size - 1;
+        return true;
+    }
+    return false;
+}
+
+fn set_has(set, item) {
+    // Check if set contains item
+    return arr_contains(set.items, item);
+}
+
+fn set_size(set) {
+    // Get set size
+    return set.size;
+}
+
+fn set_clear(set) {
+    // Clear set
+    set.items = [];
+    set.size = 0;
+}
+
+fn set_toArray(set) {
+    // Convert set to array
+    return arr_slice(set.items, 0, set.size);
+}
+
+fn set_union(set1, set2) {
+    // Union of two sets
+    let result = set_create();
+    
+    let i = 0;
+    while (i < set1.size) {
+        set_add(result, set1.items[i]);
+        i = i + 1;
+    }
+    
+    i = 0;
+    while (i < set2.size) {
+        set_add(result, set2.items[i]);
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+fn set_intersection(set1, set2) {
+    // Intersection of two sets
+    let result = set_create();
+    
+    let i = 0;
+    while (i < set1.size) {
+        let item = set1.items[i];
+        if (set_has(set2, item)) {
+            set_add(result, item);
+        }
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+fn set_difference(set1, set2) {
+    // Difference of two sets (set1 - set2)
+    let result = set_create();
+    
+    let i = 0;
+    while (i < set1.size) {
+        let item = set1.items[i];
+        if (!set_has(set2, item)) {
+            set_add(result, item);
+        }
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// ===== LINKED LIST =====
+
+fn linkedlist_create() {
+    // Create empty linked list
+    return {
+        head: null,
+        tail: null,
+        size: 0
+    };
+}
+
+fn linkedlist_append(list, value) {
+    // Append to end
+    let node = {
+        value: value,
+        next: null
+    };
+    
+    if (list.head == null) {
+        list.head = node;
+        list.tail = node;
+    } else {
+        list.tail.next = node;
+        list.tail = node;
+    }
+    
+    list.size = list.size + 1;
+}
+
+fn linkedlist_prepend(list, value) {
+    // Prepend to start
+    let node = {
+        value: value,
+        next: list.head
+    };
+    
+    list.head = node;
+    
+    if (list.tail == null) {
+        list.tail = node;
+    }
+    
+    list.size = list.size + 1;
+}
+
+fn linkedlist_toArray(list) {
+    // Convert to array
+    let result = [];
+    let current = list.head;
+    
+    while (current != null) {
+        arr_push(result, current.value);
+        current = current.next;
+    }
+    
+    return result;
+}
+
+// ===== PRIORITY QUEUE =====
+
+fn priorityqueue_create() {
+    // Create empty priority queue (min-heap)
+    return {
+        items: [],
+        size: 0
+    };
+}
+
+fn priorityqueue_enqueue(pq, item, priority) {
+    // Add item with priority
+    let entry = {
+        item: item,
+        priority: priority
+    };
+    
+    arr_push(pq.items, entry);
+    pq.size = pq.size + 1;
+    
+    // Bubble up
+    let index = pq.size - 1;
+    while (index > 0) {
+        let parentIndex = (index - 1) / 2;
+        if (pq.items[index].priority < pq.items[parentIndex].priority) {
+            let temp = pq.items[index];
+            pq.items[index] = pq.items[parentIndex];
+            pq.items[parentIndex] = temp;
+            index = parentIndex;
+        } else {
+            break;
+        }
+    }
+}
+
+fn priorityqueue_dequeue(pq) {
+    // Remove highest priority item
+    if (pq.size == 0) {
+        return null;
+    }
+    
+    let result = pq.items[0].item;
+    pq.items[0] = pq.items[pq.size - 1];
+    pq.size = pq.size - 1;
+    
+    // Bubble down
+    let index = 0;
+    while (true) {
+        let leftChild = 2 * index + 1;
+        let rightChild = 2 * index + 2;
+        let smallest = index;
+        
+        if (leftChild < pq.size && pq.items[leftChild].priority < pq.items[smallest].priority) {
+            smallest = leftChild;
+        }
+        
+        if (rightChild < pq.size && pq.items[rightChild].priority < pq.items[smallest].priority) {
+            smallest = rightChild;
+        }
+        
+        if (smallest != index) {
+            let temp = pq.items[index];
+            pq.items[index] = pq.items[smallest];
+            pq.items[smallest] = temp;
+            index = smallest;
+        } else {
+            break;
+        }
+    }
+    
+    return result;
+}
+
+fn priorityqueue_peek(pq) {
+    // Peek at highest priority item
+    if (pq.size == 0) {
+        return null;
+    }
+    
+    return pq.items[0].item;
+}

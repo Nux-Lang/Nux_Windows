@@ -1,0 +1,126 @@
+# Nux JavaScript FFI Library
+# Bindings for JS/TS compiler tools
+
+# V8 engine integration
+func js_init() {
+    asm {
+        OP_FFI_JS_INIT
+    }
+}
+
+# Ohm parser
+func js_ohm_parse(grammar, input) {
+    asm {
+        grammar
+        input
+        OP_FFI_JS_OHM_PARSE
+    }
+}
+
+# PEG.js parser
+func js_pegjs_parse(grammar, input) {
+    asm {
+        grammar
+        input
+        OP_FFI_JS_PEGJS_PARSE
+    }
+}
+
+# Chevrotain parser
+func js_chevrotain_parse(parser_def, input) {
+    asm {
+        parser_def
+        input
+        OP_FFI_JS_CHEVROTAIN_PARSE
+    }
+}
+
+# Babel integration
+class JSBabel {
+    var ast;
+    
+    func parse(code) {
+        asm {
+            code
+            OP_FFI_JS_BABEL_PARSE
+        }
+    }
+    
+    func transform(ast, plugins) {
+        asm {
+            ast
+            plugins
+            OP_FFI_JS_BABEL_TRANSFORM
+        }
+    }
+    
+    func generate(ast) {
+        asm {
+            ast
+            OP_FFI_JS_BABEL_GENERATE
+        }
+    }
+}
+
+# Binaryen (WebAssembly)
+class JSBinaryen {
+    var module;
+    
+    func init() {
+        asm {
+            OP_FFI_JS_BINARYEN_INIT
+        }
+    }
+    
+    func add_function(name, params, results, body) {
+        asm {
+            this.module
+            name
+            params
+            results
+            body
+            OP_FFI_JS_BINARYEN_ADD_FUNCTION
+        }
+    }
+    
+    func emit_wasm() {
+        asm {
+            this.module
+            OP_FFI_JS_BINARYEN_EMIT
+        }
+    }
+}
+
+# Call JavaScript function
+func call_js_function(func_name, args) {
+    asm {
+        func_name
+        args
+        OP_FFI_CALL_JS_FUNCTION
+    }
+}
+
+# Evaluate JavaScript code
+func eval_js(code) {
+    asm {
+        code
+        OP_FFI_EVAL_JS
+    }
+}
+
+# Export to JavaScript
+func export_to_js(func_name, func_ptr) {
+    asm {
+        func_name
+        func_ptr
+        OP_FFI_EXPORT_TO_JS
+    }
+}
+
+# Node.js module loader
+func require_js_module(module_name) {
+    asm {
+        module_name
+        OP_FFI_JS_REQUIRE
+    }
+}

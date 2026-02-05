@@ -1,0 +1,135 @@
+# Nux PCI/PCIe Library
+# PCI and PCIe device enumeration and control
+
+# PCI configuration space access
+func pci_config_read8(bus, device, func, offset) {
+    var addr = 0x80000000;
+    addr = addr | (bus << 16);
+    addr = addr | (device << 11);
+    addr = addr | (func << 8);
+    addr = addr | (offset & 0xFC);
+    
+    outl(0xCF8, addr);
+    var data = inl(0xCFC);
+    return (data >> ((offset & 3) * 8)) & 0xFF;
+}
+
+func pci_config_read16(bus, device, func, offset) {
+    var addr = 0x80000000;
+    addr = addr | (bus << 16);
+    addr = addr | (device << 11);
+    addr = addr | (func << 8);
+    addr = addr | (offset & 0xFC);
+    
+    outl(0xCF8, addr);
+    var data = inl(0xCFC);
+    return (data >> ((offset & 2) * 8)) & 0xFFFF;
+}
+
+func pci_config_read32(bus, device, func, offset) {
+    var addr = 0x80000000;
+    addr = addr | (bus << 16);
+    addr = addr | (device << 11);
+    addr = addr | (func << 8);
+    addr = addr | (offset & 0xFC);
+    
+    outl(0xCF8, addr);
+    return inl(0xCFC);
+}
+
+func pci_config_write32(bus, device, func, offset, value) {
+    var addr = 0x80000000;
+    addr = addr | (bus << 16);
+    addr = addr | (device << 11);
+    addr = addr | (func << 8);
+    addr = addr | (offset & 0xFC);
+    
+    outl(0xCF8, addr);
+    outl(0xCFC, value);
+}
+
+# PCI device class
+class PCIDevice {
+    var bus;
+    var device;
+    var function;
+    var vendor_id;
+    var device_id;
+    var class_code;
+    var subclass;
+    
+    func init(b, d, f) {
+        this.bus = b;
+        this.device = d;
+        this.function = f;
+        
+        var vendor_device = pci_config_read32(b, d, f, 0);
+        this.vendor_id = vendor_device & 0xFFFF;
+        this.device_id = (vendor_device >> 16) & 0xFFFF;
+        
+        var class_info = pci_config_read32(b, d, f, 8);
+        this.class_code = (class_info >> 24) & 0xFF;
+        this.subclass = (class_info >> 16) & 0xFF;
+    }
+    
+    func read_bar(bar_num) {
+        var offset = 0x10 + (bar_num * 4);
+        return pci_config_read32(this.bus, this.device, this.function, offset);
+    }
+    
+    func write_bar(bar_num, value) {
+        var offset = 0x10 + (bar_num * 4);
+        pci_config_write32(this.bus, this.device, this.function, offset, value);
+    }
+    
+    func enable_bus_mastering() {
+        var command = pci_config_read16(this.bus, this.device, this.function, 4);
+        command = command | 0x04;
+        pci_config_write32(this.bus, this.device, this.function, 4, command);
+    }
+    
+    func enable_mmio() {
+        var command = pci_config_read16(this.bus, this.device, this.function, 4);
+        command = command | 0x02;
+        pci_config_write32(this.bus, this.device, this.function, 4, command);
+    }
+}
+
+# PCI enumeration
+func pci_scan_bus(bus) {
+    var devices = new List();
+    devices.init();
+    
+    var device = 0;
+    for (device = 0; device < 32; device = device + 1) {
+        var vendor = pci_config_read16(bus, device, 0, 0);
+        if (vendor != 0xFFFF) {
+            var dev = new PCIDevice();
+            dev.init(bus, device, 0);
+            devices.append(dev);
+        }
+    }
+    
+    return devices;
+}
+
+# PCIe MMIO access
+func pcie_read32(base_addr, bus, device, func, offset) {
+    var addr = base_addr;
+    addr = addr | (bus << 20);
+    addr = addr | (device << 15);
+    addr = addr | (func << 12);
+    addr = addr | offset;
+    
+    return mem_read32(addr);
+}
+
+func pcie_write32(base_addr, bus, device, func, offset, value) {
+    var addr = base_addr;
+    addr = addr | (bus << 20);
+    addr = addr | (device << 15);
+    addr = addr | (func << 12);
+    addr = addr | offset;
+    
+    mem_write32(addr, value);
+}

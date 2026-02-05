@@ -1,0 +1,289 @@
+// Nux Standard Library - String Manipulation
+// Comprehensive string functions for text processing
+
+// ===== BASIC OPERATIONS (Already exist, keeping for compatibility) =====
+
+fn to_upper(s) {
+    return UpperCase(s);
+}
+
+fn to_lower(s) {
+    return LowerCase(s);
+}
+
+// ===== NEW COMPREHENSIVE STRING FUNCTIONS =====
+
+// Length and access
+fn length(s) {
+    let count = 0;
+    let i = 0;
+    while (s[i] != "") {
+        count = count + 1;
+        i = i + 1;
+    }
+    return count;
+}
+
+fn charAt(s, index) {
+    return s[index];
+}
+
+// Case conversion
+fn toTitleCase(s) {
+    let words = split(s, " ");
+    let result = "";
+    let i = 0;
+    
+    while (i < length(words)) {
+        let word = words[i];
+        if (length(word) > 0) {
+            let first = to_upper(charAt(word, 0));
+            let rest = to_lower(substring(word, 1, length(word)));
+            result = result + first + rest;
+            
+            if (i < length(words) - 1) {
+                result = result + " ";
+            }
+        }
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// Trimming
+fn trim(s) {
+    return trimEnd(trimStart(s));
+}
+
+fn trimStart(s) {
+    let i = 0;
+    while (i < length(s)) {
+        let ch = s[i];
+        if (ch != " " && ch != "\t" && ch != "\n") {
+            break;
+        }
+        i = i + 1;
+    }
+    return substring(s, i, length(s));
+}
+
+fn trimEnd(s) {
+    let i = length(s) - 1;
+    while (i >= 0) {
+        let ch = s[i];
+        if (ch != " " && ch != "\t" && ch != "\n") {
+            break;
+        }
+        i = i - 1;
+    }
+    return substring(s, 0, i + 1);
+}
+
+// Searching
+fn indexOf(s, search) {
+    let sLen = length(s);
+    let searchLen = length(search);
+    
+    let i = 0;
+    while (i <= sLen - searchLen) {
+        let match = true;
+        let j = 0;
+        
+        while (j < searchLen) {
+            if (s[i + j] != search[j]) {
+                match = false;
+                break;
+            }
+            j = j + 1;
+        }
+        
+        if (match) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn contains(s, search) {
+    return indexOf(s, search) != -1;
+}
+
+fn startsWith(s, prefix) {
+    let prefixLen = length(prefix);
+    if (prefixLen > length(s)) {
+        return false;
+    }
+    
+    let i = 0;
+    while (i < prefixLen) {
+        if (s[i] != prefix[i]) {
+            return false;
+        }
+        i = i + 1;
+    }
+    
+    return true;
+}
+
+fn endsWith(s, suffix) {
+    let sLen = length(s);
+    let suffixLen = length(suffix);
+    
+    if (suffixLen > sLen) {
+        return false;
+    }
+    
+    let offset = sLen - suffixLen;
+    let i = 0;
+    
+    while (i < suffixLen) {
+        if (s[offset + i] != suffix[i]) {
+            return false;
+        }
+        i = i + 1;
+    }
+    
+    return true;
+}
+
+// Splitting
+fn split(s, delimiter) {
+    let result = [];
+    let current = "";
+    let sLen = length(s);
+    let delimLen = length(delimiter);
+    let i = 0;
+    
+    while (i < sLen) {
+        let isDelim = true;
+        let j = 0;
+        
+        while (j < delimLen && i + j < sLen) {
+            if (s[i + j] != delimiter[j]) {
+                isDelim = false;
+                break;
+            }
+            j = j + 1;
+        }
+        
+        if (isDelim && delimLen > 0) {
+            result.push(current);
+            current = "";
+            i = i + delimLen;
+        } else {
+            current = current + s[i];
+            i = i + 1;
+        }
+    }
+    
+    result.push(current);
+    return result;
+}
+
+// Replacement
+fn replace(s, old, new) {
+    let index = indexOf(s, old);
+    if (index == -1) {
+        return s;
+    }
+    
+    let before = substring(s, 0, index);
+    let after = substring(s, index + length(old), length(s));
+    return before + new + after;
+}
+
+fn replaceAll(s, old, new) {
+    let result = s;
+    let index = indexOf(result, old);
+    
+    while (index != -1) {
+        let before = substring(result, 0, index);
+        let after = substring(result, index + length(old), length(result));
+        result = before + new + after;
+        index = indexOf(result, old);
+    }
+    
+    return result;
+}
+
+// Substring
+fn substring(s, start, end) {
+    let result = "";
+    let i = start;
+    
+    while (i < end && i < length(s)) {
+        result = result + s[i];
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// Padding
+fn padStart(s, targetLength, padString) {
+    let sLen = length(s);
+    if (sLen >= targetLength) {
+        return s;
+    }
+    
+    let padLength = targetLength - sLen;
+    let padding = "";
+    
+    while (length(padding) < padLength) {
+        padding = padding + padString;
+    }
+    
+    return substring(padding, 0, padLength) + s;
+}
+
+fn padEnd(s, targetLength, padString) {
+    let sLen = length(s);
+    if (sLen >= targetLength) {
+        return s;
+    }
+    
+    let padLength = targetLength - sLen;
+    let padding = "";
+    
+    while (length(padding) < padLength) {
+        padding = padding + padString;
+    }
+    
+    return s + substring(padding, 0, padLength);
+}
+
+// Repeat
+fn repeat(s, count) {
+    let result = "";
+    let i = 0;
+    
+    while (i < count) {
+        result = result + s;
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// Utility
+fn reverse(s) {
+    let result = "";
+    let i = length(s) - 1;
+    
+    while (i >= 0) {
+        result = result + s[i];
+        i = i - 1;
+    }
+    
+    return result;
+}
+
+fn isEmpty(s) {
+    return length(s) == 0;
+}
+
+fn isBlank(s) {
+    return length(trim(s)) == 0;
+}

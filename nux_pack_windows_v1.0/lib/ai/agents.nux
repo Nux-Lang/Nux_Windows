@@ -1,0 +1,509 @@
+# Nux AI Agents Library
+# LLM agents, tool calling, RAG, and planning
+
+import "std.math";
+
+# ============================================================
+# MEMORY SYSTEMS
+# ============================================================
+
+class ShortTermMemory {
+    var messages;
+    var max_size;
+    
+    func init(capacity) {
+        this.max_size = capacity;
+        this.messages = new List();
+        this.messages.init();
+    }
+    
+    func add(role, content) {
+        var msg = new Map();
+        msg.init();
+        msg.put("role", role);
+        msg.put("content", content);
+        msg.put("timestamp", rdtsc());
+        this.messages.append(msg);
+        
+        if (this.messages.length() > this.max_size) {
+            this.messages.remove(0);
+        }
+    }
+    
+    func get_context() {
+        return this.messages;
+    }
+    
+    func clear() {
+        this.messages.clear();
+    }
+}
+
+class LongTermMemory {
+    var memories;
+    var embeddings;
+    var embed_dim;
+    
+    func init(embedding_dim) {
+        this.embed_dim = embedding_dim;
+        this.memories = new List();
+        this.memories.init();
+        this.embeddings = new List();
+        this.embeddings.init();
+    }
+    
+    func store(content, embedding) {
+        var entry = new Map();
+        entry.init();
+        entry.put("content", content);
+        entry.put("timestamp", rdtsc());
+        entry.put("access_count", 0);
+        this.memories.append(entry);
+        this.embeddings.append(embedding);
+    }
+    
+    func retrieve(query_embedding, top_k) {
+        var scores = new List();
+        scores.init();
+        
+        var i = 0;
+        for (i = 0; i < this.embeddings.length(); i = i + 1) {
+            var score = this.cosine_similarity(query_embedding, this.embeddings.get(i));
+            scores.append(score);
+        }
+        
+        # Get top k indices
+        var results = new List();
+        results.init();
+        var j = 0;
+        for (j = 0; j < top_k; j = j + 1) {
+            var best_idx = -1;
+            var best_score = -1;
+            for (i = 0; i < scores.length(); i = i + 1) {
+                if (scores.get(i) > best_score) {
+                    best_score = scores.get(i);
+                    best_idx = i;
+                }
+            }
+            if (best_idx >= 0) {
+                results.append(this.memories.get(best_idx));
+                scores.set(best_idx, -999);
+            }
+        }
+        
+        return results;
+    }
+    
+    func cosine_similarity(a, b) {
+        var dot = 0;
+        var norm_a = 0;
+        var norm_b = 0;
+        var i = 0;
+        for (i = 0; i < a.length(); i = i + 1) {
+            dot = dot + a.get(i) * b.get(i);
+            norm_a = norm_a + a.get(i) * a.get(i);
+            norm_b = norm_b + b.get(i) * b.get(i);
+        }
+        return dot / (sqrt(norm_a) * sqrt(norm_b) + 0.0001);
+    }
+}
+
+class EpisodicMemory {
+    var episodes;
+    var current_episode;
+    
+    func init() {
+        this.episodes = new List();
+        this.episodes.init();
+        this.current_episode = new List();
+        this.current_episode.init();
+    }
+    
+    func add_step(observation, action, reward) {
+        var step = new Map();
+        step.init();
+        step.put("observation", observation);
+        step.put("action", action);
+        step.put("reward", reward);
+        this.current_episode.append(step);
+    }
+    
+    func end_episode() {
+        if (this.current_episode.length() > 0) {
+            this.episodes.append(this.current_episode);
+            this.current_episode = new List();
+            this.current_episode.init();
+        }
+    }
+    
+    func get_similar_episodes(query) {
+        return this.episodes;
+    }
+}
+
+# ============================================================
+# TOOL SYSTEM
+# ============================================================
+
+class Tool {
+    var name;
+    var description;
+    var parameters;
+    var handler;
+    
+    func init(tool_name, desc, params) {
+        this.name = tool_name;
+        this.description = desc;
+        this.parameters = params;
+    }
+    
+    func get_schema() {
+        var schema = new Map();
+        schema.init();
+        schema.put("name", this.name);
+        schema.put("description", this.description);
+        schema.put("parameters", this.parameters);
+        return schema;
+    }
+    
+    func execute(args) {
+        if (this.handler != 0) {
+            return this.handler(args);
+        }
+        return "Tool not implemented";
+    }
+}
+
+class ToolRegistry {
+    var tools;
+    
+    func init() {
+        this.tools = new Map();
+        this.tools.init();
+    }
+    
+    func register(tool) {
+        this.tools.put(tool.name, tool);
+    }
+    
+    func get_tool(name) {
+        return this.tools.get(name);
+    }
+    
+    func get_all_schemas() {
+        var schemas = new List();
+        schemas.init();
+        var keys = this.tools.keys();
+        var i = 0;
+        for (i = 0; i < keys.length(); i = i + 1) {
+            var tool = this.tools.get(keys.get(i));
+            schemas.append(tool.get_schema());
+        }
+        return schemas;
+    }
+    
+    func call(name, args) {
+        var tool = this.tools.get(name);
+        if (tool != 0) {
+            return tool.execute(args);
+        }
+        return "Tool not found: " + name;
+    }
+}
+
+# ============================================================
+# RAG (RETRIEVAL AUGMENTED GENERATION)
+# ============================================================
+
+class VectorStore {
+    var documents;
+    var embeddings;
+    var metadata;
+    
+    func init() {
+        this.documents = new List();
+        this.documents.init();
+        this.embeddings = new List();
+        this.embeddings.init();
+        this.metadata = new List();
+        this.metadata.init();
+    }
+    
+    func add(doc, embedding, meta) {
+        this.documents.append(doc);
+        this.embeddings.append(embedding);
+        this.metadata.append(meta);
+    }
+    
+    func search(query_embedding, top_k) {
+        var scores = new List();
+        scores.init();
+        
+        var i = 0;
+        for (i = 0; i < this.embeddings.length(); i = i + 1) {
+            var score = this.cosine_sim(query_embedding, this.embeddings.get(i));
+            scores.append(score);
+        }
+        
+        var results = new List();
+        results.init();
+        var j = 0;
+        for (j = 0; j < top_k; j = j + 1) {
+            var best_idx = -1;
+            var best_score = -999;
+            for (i = 0; i < scores.length(); i = i + 1) {
+                if (scores.get(i) > best_score) {
+                    best_score = scores.get(i);
+                    best_idx = i;
+                }
+            }
+            if (best_idx >= 0) {
+                var result = new Map();
+                result.init();
+                result.put("document", this.documents.get(best_idx));
+                result.put("score", best_score);
+                result.put("metadata", this.metadata.get(best_idx));
+                results.append(result);
+                scores.set(best_idx, -9999);
+            }
+        }
+        return results;
+    }
+    
+    func cosine_sim(a, b) {
+        var dot = 0;
+        var norm_a = 0;
+        var norm_b = 0;
+        var i = 0;
+        for (i = 0; i < a.length(); i = i + 1) {
+            dot = dot + a.get(i) * b.get(i);
+            norm_a = norm_a + a.get(i) * a.get(i);
+            norm_b = norm_b + b.get(i) * b.get(i);
+        }
+        return dot / (sqrt(norm_a) * sqrt(norm_b) + 0.0001);
+    }
+}
+
+class RAGPipeline {
+    var vector_store;
+    var retriever_k;
+    var reranker;
+    
+    func init(store, k) {
+        this.vector_store = store;
+        this.retriever_k = k;
+    }
+    
+    func retrieve(query_embedding) {
+        var docs = this.vector_store.search(query_embedding, this.retriever_k);
+        return docs;
+    }
+    
+    func format_context(docs) {
+        var context = "";
+        var i = 0;
+        for (i = 0; i < docs.length(); i = i + 1) {
+            var doc = docs.get(i);
+            context = context + "Document " + i + ": " + doc.get("document") + "\n";
+        }
+        return context;
+    }
+}
+
+# ============================================================
+# PLANNING STRATEGIES
+# ============================================================
+
+class ReActAgent {
+    var model;
+    var tools;
+    var memory;
+    var max_steps;
+    
+    func init(tool_registry, max_iter) {
+        this.tools = tool_registry;
+        this.max_steps = max_iter;
+        this.memory = new ShortTermMemory();
+        this.memory.init(20);
+    }
+    
+    func run(query) {
+        this.memory.add("user", query);
+        
+        var step = 0;
+        while (step < this.max_steps) {
+            # Think
+            var thought = this.think();
+            this.memory.add("assistant", "Thought: " + thought);
+            
+            # Act
+            var action = this.decide_action(thought);
+            if (action.get("type") == "final_answer") {
+                return action.get("answer");
+            }
+            
+            # Execute tool
+            var tool_name = action.get("tool");
+            var tool_args = action.get("args");
+            var observation = this.tools.call(tool_name, tool_args);
+            
+            this.memory.add("system", "Observation: " + observation);
+            
+            step = step + 1;
+        }
+        
+        return "Max steps reached";
+    }
+    
+    func think() {
+        # Use model to generate thought
+        return "Analyzing the query...";
+    }
+    
+    func decide_action(thought) {
+        var action = new Map();
+        action.init();
+        action.put("type", "final_answer");
+        action.put("answer", "Based on my analysis...");
+        return action;
+    }
+}
+
+class ChainOfThoughtAgent {
+    var model;
+    var prompts;
+    
+    func init() {
+        this.prompts = new Map();
+        this.prompts.init();
+    }
+    
+    func run(query) {
+        var steps = new List();
+        steps.init();
+        
+        # Step 1: Break down the problem
+        steps.append("Step 1: Understanding the question");
+        
+        # Step 2: Identify relevant information
+        steps.append("Step 2: Identifying key information");
+        
+        # Step 3: Reason through
+        steps.append("Step 3: Reasoning...");
+        
+        # Step 4: Conclude
+        steps.append("Step 4: Conclusion");
+        
+        return steps;
+    }
+}
+
+class TreeOfThoughtAgent {
+    var model;
+    var branching_factor;
+    var max_depth;
+    var evaluator;
+    
+    func init(branches, depth) {
+        this.branching_factor = branches;
+        this.max_depth = depth;
+    }
+    
+    func run(query) {
+        var root = new Map();
+        root.init();
+        root.put("state", query);
+        root.put("children", new List());
+        root.get("children").init();
+        
+        this.expand(root, 0);
+        
+        var best_path = this.find_best_path(root);
+        return best_path;
+    }
+    
+    func expand(node, depth) {
+        if (depth >= this.max_depth) { return; }
+        
+        var i = 0;
+        for (i = 0; i < this.branching_factor; i = i + 1) {
+            var child = new Map();
+            child.init();
+            child.put("state", node.get("state") + " -> thought " + i);
+            child.put("score", this.evaluate(child.get("state")));
+            child.put("children", new List());
+            child.get("children").init();
+            
+            node.get("children").append(child);
+            this.expand(child, depth + 1);
+        }
+    }
+    
+    func evaluate(state) {
+        return (random() % 100) / 100;
+    }
+    
+    func find_best_path(root) {
+        var path = new List();
+        path.init();
+        var current = root;
+        
+        while (current.get("children").length() > 0) {
+            var children = current.get("children");
+            var best = children.get(0);
+            var i = 1;
+            for (i = 1; i < children.length(); i = i + 1) {
+                if (children.get(i).get("score") > best.get("score")) {
+                    best = children.get(i);
+                }
+            }
+            path.append(best.get("state"));
+            current = best;
+        }
+        
+        return path;
+    }
+}
+
+# ============================================================
+# AGENT EXECUTOR
+# ============================================================
+
+class AgentExecutor {
+    var agent;
+    var tools;
+    var memory;
+    var verbose;
+    var max_iterations;
+    
+    func init(ag, tool_registry, max_iter) {
+        this.agent = ag;
+        this.tools = tool_registry;
+        this.max_iterations = max_iter;
+        this.verbose = 1;
+        
+        this.memory = new ShortTermMemory();
+        this.memory.init(50);
+    }
+    
+    func invoke(input) {
+        this.memory.add("user", input);
+        
+        var iteration = 0;
+        while (iteration < this.max_iterations) {
+            var action = this.agent.run(input);
+            
+            if (this.verbose == 1) {
+                println("Iteration " + iteration + ": " + action);
+            }
+            
+            if (action == "FINISHED") {
+                break;
+            }
+            
+            iteration = iteration + 1;
+        }
+        
+        return this.memory.get_context();
+    }
+}

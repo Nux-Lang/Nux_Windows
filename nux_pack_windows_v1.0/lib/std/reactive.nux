@@ -1,0 +1,401 @@
+// Nux Standard Library - Reactive Programming
+// Observables, streams, and reactive data flow
+
+// ===== OBSERVABLE =====
+
+fn observable_create(subscribe) {
+    // Create observable
+    return {
+        subscribe: subscribe,
+        observers: []
+    };
+}
+
+fn observable_of(...values) {
+    // Create observable from values
+    return observable_create(fn(observer) {
+        arr_forEach(values, fn(value) {
+            observer.next(value);
+        });
+        observer.complete();
+    });
+}
+
+fn observable_from(iterable) {
+    // Create observable from iterable
+    return observable_create(fn(observer) {
+        arr_forEach(iterable, fn(value) {
+            observer.next(value);
+        });
+        observer.complete();
+    });
+}
+
+fn observable_interval(ms) {
+    // Create interval observable
+    return observable_create(fn(observer) {
+        let count = 0;
+        while (true) {
+            observer.next(count);
+            count = count + 1;
+            sys_sleep(ms);
+        }
+    });
+}
+
+fn observable_timer(delay, period) {
+    // Create timer observable
+    return observable_create(fn(observer) {
+        sys_sleep(delay);
+        
+        let count = 0;
+        while (true) {
+            observer.next(count);
+            count = count + 1;
+            sys_sleep(period);
+        }
+    });
+}
+
+// ===== OBSERVER =====
+
+fn observer_create(next, error, complete) {
+    // Create observer
+    return {
+        next: next,
+        error: error || fn(err) { print("Error: " + err); },
+        complete: complete || fn() { print("Complete"); }
+    };
+}
+
+// ===== OPERATORS =====
+
+fn op_map(observable, fn) {
+    // Map operator
+    return observable_create(fn(observer) {
+        observable.subscribe(observer_create(
+            fn(value) { observer.next(fn(value)); },
+            fn(err) { observer.error(err); },
+            fn() { observer.complete(); }
+        ));
+    });
+}
+
+fn op_filter(observable, predicate) {
+    // Filter operator
+    return observable_create(fn(observer) {
+        observable.subscribe(observer_create(
+            fn(value) {
+                if (predicate(value)) {
+                    observer.next(value);
+                }
+            },
+            fn(err) { observer.error(err); },
+            fn() { observer.complete(); }
+        ));
+    });
+}
+
+fn op_reduce(observable, reducer, seed) {
+    // Reduce operator
+    return observable_create(fn(observer) {
+        let acc = seed;
+        
+        observable.subscribe(observer_create(
+            fn(value) { acc = reducer(acc, value); },
+            fn(err) { observer.error(err); },
+            fn() {
+                observer.next(acc);
+                observer.complete();
+            }
+        ));
+    });
+}
+
+fn op_take(observable, count) {
+    // Take first N values
+    return observable_create(fn(observer) {
+        let taken = 0;
+        
+        observable.subscribe(observer_create(
+            fn(value) {
+                if (taken < count) {
+                    observer.next(value);
+                    taken = taken + 1;
+                    
+                    if (taken == count) {
+                        observer.complete();
+                    }
+                }
+            },
+            fn(err) { observer.error(err); },
+            fn() { observer.complete(); }
+        ));
+    });
+}
+
+fn op_skip(observable, count) {
+    // Skip first N values
+    return observable_create(fn(observer) {
+        let skipped = 0;
+        
+        observable.subscribe(observer_create(
+            fn(value) {
+                if (skipped >= count) {
+                    observer.next(value);
+                } else {
+                    skipped = skipped + 1;
+                }
+            },
+            fn(err) { observer.error(err); },
+            fn() { observer.complete(); }
+        ));
+    });
+}
+
+fn op_debounce(observable, ms) {
+    // Debounce operator
+    return observable_create(fn(observer) {
+        let lastValue = null;
+        let timer = null;
+        
+        observable.subscribe(observer_create(
+            fn(value) {
+                lastValue = value;
+                
+                if (timer != null) {
+                    // Cancel previous timer
+                }
+                
+                // Set new timer
+                timer = sys_setTimeout(fn() {
+                    observer.next(lastValue);
+                    timer = null;
+                }, ms);
+            },
+            fn(err) { observer.error(err); },
+            fn() { observer.complete(); }
+        ));
+    });
+}
+
+fn op_throttle(observable, ms) {
+    // Throttle operator
+    return observable_create(fn(observer) {
+        let lastEmit = 0;
+        
+        observable.subscribe(observer_create(
+            fn(value) {
+                let now = date_now();
+                
+                if (now - lastEmit >= ms) {
+                    observer.next(value);
+                    lastEmit = now;
+                }
+            },
+            fn(err) { observer.error(err); },
+            fn() { observer.complete(); }
+        ));
+    });
+}
+
+fn op_merge(observables) {
+    // Merge multiple observables
+    return observable_create(fn(observer) {
+        let completed = 0;
+        let total = arr_length(observables);
+        
+        arr_forEach(observables, fn(obs) {
+            obs.subscribe(observer_create(
+                fn(value) { observer.next(value); },
+                fn(err) { observer.error(err); },
+                fn() {
+                    completed = completed + 1;
+                    if (completed == total) {
+                        observer.complete();
+                    }
+                }
+            ));
+        });
+    });
+}
+
+fn op_combineLatest(observables) {
+    // Combine latest values
+    return observable_create(fn(observer) {
+        let latest = arr_fill(arr_length(observables), null);
+        let hasValue = arr_fill(arr_length(observables), false);
+        
+        let i = 0;
+        while (i < arr_length(observables)) {
+            let index = i;
+            
+            observables[i].subscribe(observer_create(
+                fn(value) {
+                    latest[index] = value;
+                    hasValue[index] = true;
+                    
+                    // Emit if all have values
+                    if (arr_every(hasValue, fn(x) { return x; })) {
+                        observer.next(latest);
+                    }
+                },
+                fn(err) { observer.error(err); },
+                fn() { observer.complete(); }
+            ));
+            
+            i = i + 1;
+        }
+    });
+}
+
+// ===== SUBJECT =====
+
+fn subject_create() {
+    // Create subject (both observable and observer)
+    return {
+        observers: [],
+        subscribe: fn(observer) {
+            arr_push(this.observers, observer);
+        },
+        next: fn(value) {
+            arr_forEach(this.observers, fn(obs) {
+                obs.next(value);
+            });
+        },
+        error: fn(err) {
+            arr_forEach(this.observers, fn(obs) {
+                obs.error(err);
+            });
+        },
+        complete: fn() {
+            arr_forEach(this.observers, fn(obs) {
+                obs.complete();
+            });
+        }
+    };
+}
+
+fn behaviorSubject_create(initialValue) {
+    // Create behavior subject (has current value)
+    let subject = subject_create();
+    subject.value = initialValue;
+    
+    let originalNext = subject.next;
+    subject.next = fn(value) {
+        this.value = value;
+        originalNext(value);
+    };
+    
+    let originalSubscribe = subject.subscribe;
+    subject.subscribe = fn(observer) {
+        observer.next(this.value);
+        originalSubscribe(observer);
+    };
+    
+    return subject;
+}
+
+// ===== REACTIVE STATE =====
+
+fn reactive_state(initialState) {
+    // Create reactive state
+    let state = initialState;
+    let subject = behaviorSubject_create(state);
+    
+    return {
+        get: fn() { return state; },
+        set: fn(newState) {
+            state = newState;
+            subject.next(state);
+        },
+        update: fn(updater) {
+            state = updater(state);
+            subject.next(state);
+        },
+        subscribe: fn(observer) {
+            subject.subscribe(observer);
+        }
+    };
+}
+
+// ===== COMPUTED VALUES =====
+
+fn computed(dependencies, computer) {
+    // Create computed value
+    let value = null;
+    let subject = subject_create();
+    
+    // Subscribe to all dependencies
+    arr_forEach(dependencies, fn(dep) {
+        dep.subscribe(observer_create(fn() {
+            // Recompute
+            let deps = arr_map(dependencies, fn(d) { return d.get(); });
+            value = computer(...deps);
+            subject.next(value);
+        }));
+    });
+    
+    // Initial computation
+    let deps = arr_map(dependencies, fn(d) { return d.get(); });
+    value = computer(...deps);
+    
+    return {
+        get: fn() { return value; },
+        subscribe: fn(observer) {
+            subject.subscribe(observer);
+        }
+    };
+}
+
+// ===== EFFECTS =====
+
+fn effect(fn) {
+    // Create side effect
+    let cleanup = null;
+    
+    let run = fn() {
+        if (cleanup != null) {
+            cleanup();
+        }
+        cleanup = fn();
+    };
+    
+    run();
+    
+    return {
+        dispose: fn() {
+            if (cleanup != null) {
+                cleanup();
+            }
+        }
+    };
+}
+
+// ===== REACTIVE COLLECTIONS =====
+
+fn reactiveArray(initialArray) {
+    // Create reactive array
+    let arr = initialArray || [];
+    let subject = behaviorSubject_create(arr);
+    
+    return {
+        get: fn() { return arr; },
+        push: fn(value) {
+            arr_push(arr, value);
+            subject.next(arr);
+        },
+        pop: fn() {
+            let value = arr_pop(arr);
+            subject.next(arr);
+            return value;
+        },
+        splice: fn(index, count, ...items) {
+            arr_splice(arr, index, count, ...items);
+            subject.next(arr);
+        },
+        subscribe: fn(observer) {
+            subject.subscribe(observer);
+        }
+    };
+}

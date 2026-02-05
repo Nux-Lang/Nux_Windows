@@ -1,0 +1,485 @@
+# Nux Memory Manager Library
+# Heap allocation and virtual memory management
+
+import "os.kernel";
+
+# ============================================================
+# HEAP ALLOCATORS
+# ============================================================
+
+class FreeBlock {
+    var start;
+    var size;
+    var next;
+    
+    func init(addr, sz) {
+        this.start = addr;
+        this.size = sz;
+        this.next = 0;
+    }
+}
+
+class BumpAllocator {
+    var base;
+    var current;
+    var limit;
+    
+    func init(heap_start, heap_size) {
+        this.base = heap_start;
+        this.current = heap_start;
+        this.limit = heap_start + heap_size;
+    }
+    
+    func allocate(size) {
+        # Align to 8 bytes
+        var aligned_size = (size + 7) & ~7;
+        
+        if (this.current + aligned_size > this.limit) {
+            return 0;
+        }
+        
+        var addr = this.current;
+        this.current = this.current + aligned_size;
+        return addr;
+    }
+    
+    func reset() {
+        this.current = this.base;
+    }
+}
+
+class FirstFitAllocator {
+    var free_list;
+    var heap_start;
+    var heap_size;
+    
+    func init(start, size) {
+        this.heap_start = start;
+        this.heap_size = size;
+        
+        this.free_list = new FreeBlock();
+        this.free_list.init(start, size);
+    }
+    
+    func allocate(size) {
+        var aligned_size = (size + 7 + 8) & ~7;  # +8 for header
+        
+        var prev = 0;
+        var current = this.free_list;
+        
+        while (current != 0) {
+            if (current.size >= aligned_size) {
+                var addr = current.start;
+                
+                if (current.size > aligned_size + 16) {
+                    # Split block
+                    var new_block = new FreeBlock();
+                    new_block.init(current.start + aligned_size, 
+                                   current.size - aligned_size);
+                    new_block.next = current.next;
+                    
+                    if (prev == 0) {
+                        this.free_list = new_block;
+                    } else {
+                        prev.next = new_block;
+                    }
+                } else {
+                    # Use entire block
+                    if (prev == 0) {
+                        this.free_list = current.next;
+                    } else {
+                        prev.next = current.next;
+                    }
+                }
+                
+                # Store size in header
+                poke(addr, aligned_size);
+                return addr + 8;
+            }
+            
+            prev = current;
+            current = current.next;
+        }
+        
+        return 0;
+    }
+    
+    func free(addr) {
+        var block_start = addr - 8;
+        var block_size = peek(block_start);
+        
+        var new_free = new FreeBlock();
+        new_free.init(block_start, block_size);
+        
+        # Insert into sorted free list and coalesce
+        if (this.free_list == 0 || block_start < this.free_list.start) {
+            new_free.next = this.free_list;
+            this.free_list = new_free;
+        } else {
+            var current = this.free_list;
+            while (current.next != 0 && current.next.start < block_start) {
+                current = current.next;
+            }
+            new_free.next = current.next;
+            current.next = new_free;
+        }
+        
+        this.coalesce();
+    }
+    
+    func coalesce() {
+        var current = this.free_list;
+        while (current != 0 && current.next != 0) {
+            if (current.start + current.size == current.next.start) {
+                current.size = current.size + current.next.size;
+                current.next = current.next.next;
+            } else {
+                current = current.next;
+            }
+        }
+    }
+}
+
+class BuddyAllocator {
+    var base;
+    var total_size;
+    var min_block_size;
+    var max_order;
+    var free_lists;
+    
+    func init(heap_start, heap_size, min_size) {
+        this.base = heap_start;
+        this.total_size = heap_size;
+        this.min_block_size = min_size;
+        
+        # Calculate max order
+        this.max_order = 0;
+        var size = heap_size;
+        while (size > min_size) {
+            this.max_order = this.max_order + 1;
+            size = size / 2;
+        }
+        
+        # Initialize free lists
+        this.free_lists = new List();
+        this.free_lists.init();
+        var i = 0;
+        for (i = 0; i <= this.max_order; i = i + 1) {
+            var list = new List();
+            list.init();
+            this.free_lists.append(list);
+        }
+        
+        # Add entire heap to highest order
+        this.free_lists.get(this.max_order).append(heap_start);
+    }
+    
+    func get_order(size) {
+        var order = 0;
+        var block_size = this.min_block_size;
+        while (block_size < size && order < this.max_order) {
+            order = order + 1;
+            block_size = block_size * 2;
+        }
+        return order;
+    }
+    
+    func allocate(size) {
+        var order = this.get_order(size);
+        
+        # Find smallest available block
+        var i = order;
+        while (i <= this.max_order) {
+            if (this.free_lists.get(i).length() > 0) {
+                return this.split_and_allocate(i, order);
+            }
+            i = i + 1;
+        }
+        
+        return 0;
+    }
+    
+    func split_and_allocate(available_order, target_order) {
+        var block = this.free_lists.get(available_order).pop();
+        
+        while (available_order > target_order) {
+            available_order = available_order - 1;
+            var block_size = this.min_block_size;
+            var j = 0;
+            for (j = 0; j < available_order; j = j + 1) {
+                block_size = block_size * 2;
+            }
+            
+            # Add buddy to free list
+            var buddy = block + block_size;
+            this.free_lists.get(available_order).append(buddy);
+        }
+        
+        return block;
+    }
+    
+    func free(addr, size) {
+        var order = this.get_order(size);
+        var block = addr;
+        
+        while (order < this.max_order) {
+            var block_size = this.min_block_size;
+            var j = 0;
+            for (j = 0; j < order; j = j + 1) {
+                block_size = block_size * 2;
+            }
+            
+            var buddy = this.get_buddy(block, block_size);
+            
+            # Check if buddy is free
+            var free_list = this.free_lists.get(order);
+            var buddy_idx = -1;
+            var i = 0;
+            for (i = 0; i < free_list.length(); i = i + 1) {
+                if (free_list.get(i) == buddy) {
+                    buddy_idx = i;
+                    break;
+                }
+            }
+            
+            if (buddy_idx >= 0) {
+                # Coalesce with buddy
+                free_list.remove(buddy_idx);
+                if (buddy < block) { block = buddy; }
+                order = order + 1;
+            } else {
+                break;
+            }
+        }
+        
+        this.free_lists.get(order).append(block);
+    }
+    
+    func get_buddy(block, block_size) {
+        var offset = block - this.base;
+        var buddy_offset = offset ^ block_size;
+        return this.base + buddy_offset;
+    }
+}
+
+class SlabCache {
+    var name;
+    var object_size;
+    var objects_per_slab;
+    var slabs_full;
+    var slabs_partial;
+    var slabs_empty;
+    
+    func init(cache_name, obj_size) {
+        this.name = cache_name;
+        this.object_size = obj_size;
+        this.objects_per_slab = PAGE_SIZE / obj_size;
+        
+        this.slabs_full = new List();
+        this.slabs_full.init();
+        this.slabs_partial = new List();
+        this.slabs_partial.init();
+        this.slabs_empty = new List();
+        this.slabs_empty.init();
+    }
+    
+    func allocate() {
+        # Try partial slabs first
+        if (this.slabs_partial.length() > 0) {
+            var slab = this.slabs_partial.get(0);
+            return this.allocate_from_slab(slab);
+        }
+        
+        # Try empty slabs
+        if (this.slabs_empty.length() > 0) {
+            var slab = this.slabs_empty.remove(0);
+            this.slabs_partial.append(slab);
+            return this.allocate_from_slab(slab);
+        }
+        
+        # Allocate new slab
+        var new_slab = this.create_slab();
+        this.slabs_partial.append(new_slab);
+        return this.allocate_from_slab(new_slab);
+    }
+    
+    func create_slab() {
+        var slab = new Map();
+        slab.init();
+        slab.put("base", 0);  # Would allocate page
+        slab.put("free_count", this.objects_per_slab);
+        slab.put("free_list", new List());
+        slab.get("free_list").init();
+        
+        var i = 0;
+        for (i = 0; i < this.objects_per_slab; i = i + 1) {
+            slab.get("free_list").append(i);
+        }
+        
+        return slab;
+    }
+    
+    func allocate_from_slab(slab) {
+        var free_list = slab.get("free_list");
+        var idx = free_list.pop();
+        slab.put("free_count", slab.get("free_count") - 1);
+        
+        if (slab.get("free_count") == 0) {
+            # Move to full list
+            var i = 0;
+            for (i = 0; i < this.slabs_partial.length(); i = i + 1) {
+                if (this.slabs_partial.get(i) == slab) {
+                    this.slabs_partial.remove(i);
+                    break;
+                }
+            }
+            this.slabs_full.append(slab);
+        }
+        
+        return slab.get("base") + idx * this.object_size;
+    }
+    
+    func free(addr) {
+        # Find slab containing address
+        # Add object back to free list
+    }
+}
+
+# ============================================================
+# VIRTUAL MEMORY MANAGER
+# ============================================================
+
+class VMA {
+    var start;
+    var end;
+    var flags;
+    var file;
+    var offset;
+    
+    func init(vm_start, vm_end, vm_flags) {
+        this.start = vm_start;
+        this.end = vm_end;
+        this.flags = vm_flags;
+        this.file = 0;
+        this.offset = 0;
+    }
+}
+
+class VirtualMemoryManager {
+    var page_directory;
+    var frame_allocator;
+    var vma_list;
+    var brk;
+    
+    func init(pd, fa) {
+        this.page_directory = pd;
+        this.frame_allocator = fa;
+        this.vma_list = new List();
+        this.vma_list.init();
+        this.brk = 0;
+    }
+    
+    func mmap(addr, length, prot, flags) {
+        # Align to page
+        var aligned_addr = addr & ~(PAGE_SIZE - 1);
+        var aligned_length = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        
+        # Create VMA
+        var vma = new VMA();
+        vma.init(aligned_addr, aligned_addr + aligned_length, prot);
+        this.vma_list.append(vma);
+        
+        # Allocate and map pages
+        var current = aligned_addr;
+        while (current < aligned_addr + aligned_length) {
+            var frame = this.frame_allocator.allocate();
+            this.page_directory.map_page(current, frame, prot);
+            current = current + PAGE_SIZE;
+        }
+        
+        return aligned_addr;
+    }
+    
+    func munmap(addr, length) {
+        var aligned_addr = addr & ~(PAGE_SIZE - 1);
+        var aligned_length = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        
+        # Unmap pages
+        var current = aligned_addr;
+        while (current < aligned_addr + aligned_length) {
+            var frame = this.page_directory.translate(current);
+            this.page_directory.unmap_page(current);
+            if (frame != 0) {
+                this.frame_allocator.free(frame);
+            }
+            current = current + PAGE_SIZE;
+        }
+        
+        # Remove VMA
+        var i = 0;
+        for (i = 0; i < this.vma_list.length(); i = i + 1) {
+            var vma = this.vma_list.get(i);
+            if (vma.start == aligned_addr) {
+                this.vma_list.remove(i);
+                break;
+            }
+        }
+        
+        return 0;
+    }
+    
+    func brk_syscall(new_brk) {
+        if (new_brk == 0) {
+            return this.brk;
+        }
+        
+        if (new_brk > this.brk) {
+            # Expand heap
+            var current = this.brk;
+            while (current < new_brk) {
+                var frame = this.frame_allocator.allocate();
+                this.page_directory.map_page(current, frame, PAGE_WRITABLE | PAGE_USER);
+                current = current + PAGE_SIZE;
+            }
+        } else {
+            # Shrink heap
+            var current = new_brk;
+            while (current < this.brk) {
+                var frame = this.page_directory.translate(current);
+                this.page_directory.unmap_page(current);
+                this.frame_allocator.free(frame);
+                current = current + PAGE_SIZE;
+            }
+        }
+        
+        this.brk = new_brk;
+        return this.brk;
+    }
+    
+    func page_fault_handler(fault_addr, error_code) {
+        # Find VMA for fault address
+        var vma = this.find_vma(fault_addr);
+        
+        if (vma == 0) {
+            return -1;  # Segmentation fault
+        }
+        
+        # Allocate frame and map
+        var frame = this.frame_allocator.allocate();
+        var page_addr = fault_addr & ~(PAGE_SIZE - 1);
+        this.page_directory.map_page(page_addr, frame, vma.flags);
+        
+        return 0;
+    }
+    
+    func find_vma(addr) {
+        var i = 0;
+        for (i = 0; i < this.vma_list.length(); i = i + 1) {
+            var vma = this.vma_list.get(i);
+            if (addr >= vma.start && addr < vma.end) {
+                return vma;
+            }
+        }
+        return 0;
+    }
+}

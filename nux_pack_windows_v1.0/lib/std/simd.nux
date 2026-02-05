@@ -1,0 +1,128 @@
+# Nux SIMD Library
+# SSE/AVX vector operations
+
+# SSE operations (128-bit)
+func sse_load(addr) {
+    asm {
+        "MOVDQA XMM0, [" addr "]"
+    }
+}
+
+func sse_store(addr, xmm_reg) {
+    asm {
+        "MOVDQA [" addr "], XMM0"
+    }
+}
+
+func sse_add_ps(a_addr, b_addr, result_addr) {
+    asm {
+        "MOVAPS XMM0, [" a_addr "]"
+        "MOVAPS XMM1, [" b_addr "]"
+        "ADDPS XMM0, XMM1"
+        "MOVAPS [" result_addr "], XMM0"
+    }
+}
+
+func sse_sub_ps(a_addr, b_addr, result_addr) {
+    asm {
+        "MOVAPS XMM0, [" a_addr "]"
+        "MOVAPS XMM1, [" b_addr "]"
+        "SUBPS XMM0, XMM1"
+        "MOVAPS [" result_addr "], XMM0"
+    }
+}
+
+func sse_mul_ps(a_addr, b_addr, result_addr) {
+    asm {
+        "MOVAPS XMM0, [" a_addr "]"
+        "MOVAPS XMM1, [" b_addr "]"
+        "MULPS XMM0, XMM1"
+        "MOVAPS [" result_addr "], XMM0"
+    }
+}
+
+func sse_div_ps(a_addr, b_addr, result_addr) {
+    asm {
+        "MOVAPS XMM0, [" a_addr "]"
+        "MOVAPS XMM1, [" b_addr "]"
+        "DIVPS XMM0, XMM1"
+        "MOVAPS [" result_addr "], XMM0"
+    }
+}
+
+# AVX operations (256-bit)
+func avx_load(addr) {
+    asm {
+        "VMOVDQA YMM0, [" addr "]"
+    }
+}
+
+func avx_store(addr) {
+    asm {
+        "VMOVDQA [" addr "], YMM0"
+    }
+}
+
+func avx_add_ps(a_addr, b_addr, result_addr) {
+    asm {
+        "VMOVAPS YMM0, [" a_addr "]"
+        "VMOVAPS YMM1, [" b_addr "]"
+        "VADDPS YMM0, YMM0, YMM1"
+        "VMOVAPS [" result_addr "], YMM0"
+    }
+}
+
+func avx_mul_ps(a_addr, b_addr, result_addr) {
+    asm {
+        "VMOVAPS YMM0, [" a_addr "]"
+        "VMOVAPS YMM1, [" b_addr "]"
+        "VMULPS YMM0, YMM0, YMM1"
+        "VMOVAPS [" result_addr "], YMM0"
+    }
+}
+
+func avx_fma_ps(a_addr, b_addr, c_addr, result_addr) {
+    asm {
+        "VMOVAPS YMM0, [" a_addr "]"
+        "VMOVAPS YMM1, [" b_addr "]"
+        "VMOVAPS YMM2, [" c_addr "]"
+        "VFMADD213PS YMM0, YMM1, YMM2"
+        "VMOVAPS [" result_addr "], YMM0"
+    }
+}
+
+# Vector class for easier usage
+class Vec4f {
+    var data_addr;
+    
+    func init(x, y, z, w) {
+        this.data_addr = mem_alloc_aligned(16, 16);
+        mem_write32(this.data_addr + 0, x);
+        mem_write32(this.data_addr + 4, y);
+        mem_write32(this.data_addr + 8, z);
+        mem_write32(this.data_addr + 12, w);
+    }
+    
+    func add(other) {
+        var result = new Vec4f();
+        result.init(0, 0, 0, 0);
+        sse_add_ps(this.data_addr, other.data_addr, result.data_addr);
+        return result;
+    }
+    
+    func mul(other) {
+        var result = new Vec4f();
+        result.init(0, 0, 0, 0);
+        sse_mul_ps(this.data_addr, other.data_addr, result.data_addr);
+        return result;
+    }
+    
+    func dot(other) {
+        asm {
+            "MOVAPS XMM0, [" this.data_addr "]"
+            "MOVAPS XMM1, [" other.data_addr "]"
+            "DPPS XMM0, XMM1, 0xF1"
+            "MOVSS [RSP-8], XMM0"
+        }
+    }
+}

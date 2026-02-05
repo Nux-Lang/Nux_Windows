@@ -1,0 +1,41 @@
+# GPIO Library for Embedded Nux
+# Provides digital I/O functions
+
+# GPIO Modes
+var GPIO_INPUT = 0;
+var GPIO_OUTPUT = 1;
+var GPIO_INPUT_PULLUP = 2;
+var GPIO_INPUT_PULLDOWN = 3;
+
+# Set pin mode
+func pinMode(pin, mode) {
+    asm {
+        pin
+        mode
+        OP_GPIO_MODE
+    }
+}
+
+# Write digital value
+func digitalWrite(pin, value) {
+    asm {
+        pin
+        value
+        OP_GPIO_WRITE
+    }
+}
+
+# Read digital value
+func digitalRead(pin) {
+    asm {
+        pin
+        OP_GPIO_READ
+    }
+    return 0; # Placeholder - asm pushes result
+}
+
+# Toggle pin
+func digitalToggle(pin) {
+    var current = digitalRead(pin);
+    digitalWrite(pin, 1 - current);
+}

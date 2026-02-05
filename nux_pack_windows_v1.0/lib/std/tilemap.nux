@@ -1,0 +1,257 @@
+# Nux Tilemap Library
+# Tile-based game support
+
+import "std.math";
+
+class Tile {
+    var id;
+    var solid;
+    var properties;
+    
+    func init(tile_id) {
+        this.id = tile_id;
+        this.solid = 0;
+        this.properties = new Map();
+        this.properties.init();
+    }
+}
+
+class Tileset {
+    var name;
+    var tiles;
+    var tile_width;
+    var tile_height;
+    var columns;
+    
+    func init(ts_name, tw, th) {
+        this.name = ts_name;
+        this.tile_width = tw;
+        this.tile_height = th;
+        this.tiles = new Map();
+        this.tiles.init();
+    }
+    
+    func add_tile(id, solid) {
+        var tile = new Tile();
+        tile.init(id);
+        tile.solid = solid;
+        this.tiles.put(id, tile);
+    }
+    
+    func get_tile(id) {
+        return this.tiles.get(id);
+    }
+}
+
+class TilemapLayer {
+    var name;
+    var data;
+    var width;
+    var height;
+    var visible;
+    var opacity;
+    var offset_x;
+    var offset_y;
+    var parallax_x;
+    var parallax_y;
+    
+    func init(layer_name, w, h) {
+        this.name = layer_name;
+        this.width = w;
+        this.height = h;
+        this.visible = 1;
+        this.opacity = 1;
+        this.offset_x = 0;
+        this.offset_y = 0;
+        this.parallax_x = 1;
+        this.parallax_y = 1;
+        
+        this.data = new List();
+        this.data.init();
+        var i = 0;
+        for (i = 0; i < w * h; i = i + 1) {
+            this.data.append(0);
+        }
+    }
+    
+    func get_tile(x, y) {
+        if (x < 0 || x >= this.width) { return 0; }
+        if (y < 0 || y >= this.height) { return 0; }
+        return this.data.get(y * this.width + x);
+    }
+    
+    func set_tile(x, y, tile_id) {
+        if (x < 0 || x >= this.width) { return; }
+        if (y < 0 || y >= this.height) { return; }
+        this.data.set(y * this.width + x, tile_id);
+    }
+    
+    func fill(tile_id) {
+        var i = 0;
+        for (i = 0; i < this.data.length(); i = i + 1) {
+            this.data.set(i, tile_id);
+        }
+    }
+    
+    func fill_rect(x, y, w, h, tile_id) {
+        var dy = 0;
+        for (dy = 0; dy < h; dy = dy + 1) {
+            var dx = 0;
+            for (dx = 0; dx < w; dx = dx + 1) {
+                this.set_tile(x + dx, y + dy, tile_id);
+            }
+        }
+    }
+}
+
+class Tilemap {
+    var tileset;
+    var layers;
+    var tile_width;
+    var tile_height;
+    var width;
+    var height;
+    
+    func init(tw, th, map_w, map_h) {
+        this.tile_width = tw;
+        this.tile_height = th;
+        this.width = map_w;
+        this.height = map_h;
+        this.layers = new List();
+        this.layers.init();
+    }
+    
+    func set_tileset(ts) {
+        this.tileset = ts;
+    }
+    
+    func add_layer(name) {
+        var layer = new TilemapLayer();
+        layer.init(name, this.width, this.height);
+        this.layers.append(layer);
+        return layer;
+    }
+    
+    func get_layer(name) {
+        var i = 0;
+        for (i = 0; i < this.layers.length(); i = i + 1) {
+            if (this.layers.get(i).name == name) {
+                return this.layers.get(i);
+            }
+        }
+        return 0;
+    }
+    
+    func world_to_tile(wx, wy) {
+        var tx = floor(wx / this.tile_width);
+        var ty = floor(wy / this.tile_height);
+        var result = new List();
+        result.init();
+        result.append(tx);
+        result.append(ty);
+        return result;
+    }
+    
+    func tile_to_world(tx, ty) {
+        var wx = tx * this.tile_width;
+        var wy = ty * this.tile_height;
+        var result = new List();
+        result.init();
+        result.append(wx);
+        result.append(wy);
+        return result;
+    }
+    
+    func is_solid(x, y) {
+        var i = 0;
+        for (i = 0; i < this.layers.length(); i = i + 1) {
+            var layer = this.layers.get(i);
+            var tile_id = layer.get_tile(x, y);
+            if (tile_id != 0 && this.tileset != 0) {
+                var tile = this.tileset.get_tile(tile_id);
+                if (tile != 0 && tile.solid == 1) {
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+    
+    func render(camera_x, camera_y, screen_w, screen_h, framebuffer) {
+        var start_x = floor(camera_x / this.tile_width);
+        var start_y = floor(camera_y / this.tile_height);
+        var end_x = floor((camera_x + screen_w) / this.tile_width) + 1;
+        var end_y = floor((camera_y + screen_h) / this.tile_height) + 1;
+        
+        var layer_idx = 0;
+        for (layer_idx = 0; layer_idx < this.layers.length(); layer_idx = layer_idx + 1) {
+            var layer = this.layers.get(layer_idx);
+            if (layer.visible == 0) { continue; }
+            
+            var px = camera_x * layer.parallax_x;
+            var py = camera_y * layer.parallax_y;
+            
+            var y = start_y;
+            for (y = start_y; y <= end_y; y = y + 1) {
+                var x = start_x;
+                for (x = start_x; x <= end_x; x = x + 1) {
+                    var tile_id = layer.get_tile(x, y);
+                    if (tile_id != 0) {
+                        var screen_x = x * this.tile_width - px + layer.offset_x;
+                        var screen_y = y * this.tile_height - py + layer.offset_y;
+                        
+                        # Draw tile
+                        framebuffer.fill_rect(screen_x, screen_y, 
+                            this.tile_width, this.tile_height, tile_id * 1000);
+                    }
+                }
+            }
+        }
+    }
+}
+
+# Autotiling support
+class AutoTiler {
+    var rules;
+    
+    func init() {
+        this.rules = new Map();
+        this.rules.init();
+    }
+    
+    func add_rule(bitmask, tile_id) {
+        this.rules.put(bitmask, tile_id);
+    }
+    
+    func compute_bitmask(layer, x, y, tile_type) {
+        var mask = 0;
+        
+        if (this.matches(layer, x, y - 1, tile_type)) { mask = mask + 1; }  # Top
+        if (this.matches(layer, x + 1, y, tile_type)) { mask = mask + 2; }  # Right
+        if (this.matches(layer, x, y + 1, tile_type)) { mask = mask + 4; }  # Bottom
+        if (this.matches(layer, x - 1, y, tile_type)) { mask = mask + 8; }  # Left
+        
+        return mask;
+    }
+    
+    func matches(layer, x, y, tile_type) {
+        var tile = layer.get_tile(x, y);
+        return tile == tile_type;
+    }
+    
+    func apply(layer, tile_type) {
+        var y = 0;
+        for (y = 0; y < layer.height; y = y + 1) {
+            var x = 0;
+            for (x = 0; x < layer.width; x = x + 1) {
+                var tile = layer.get_tile(x, y);
+                if (tile == tile_type) {
+                    var mask = this.compute_bitmask(layer, x, y, tile_type);
+                    if (this.rules.has(mask)) {
+                        layer.set_tile(x, y, this.rules.get(mask));
+                    }
+                }
+            }
+        }
+    }
+}

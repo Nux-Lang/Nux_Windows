@@ -1,0 +1,382 @@
+// Nux Standard Library - Constraint Programming
+// CSP, SAT solving, and constraint satisfaction
+
+// ===== CONSTRAINT VARIABLE =====
+
+fn csp_variable(name, domain) {
+    // Create constraint variable
+    return {
+        name: name,
+        domain: domain,
+        value: null
+    };
+}
+
+fn csp_constraint(variables, predicate) {
+    // Create constraint
+    return {
+        variables: variables,
+        predicate: predicate
+    };
+}
+
+// ===== CSP PROBLEM =====
+
+fn csp_create(variables, constraints) {
+    // Create CSP problem
+    return {
+        variables: variables,
+        constraints: constraints
+    };
+}
+
+fn csp_isConsistent(csp, assignment) {
+    // Check if assignment is consistent
+    return arr_every(csp.constraints, fn(constraint) {
+        // Check if all variables in constraint are assigned
+        let allAssigned = arr_every(constraint.variables, fn(varName) {
+            return obj_has(assignment, varName);
+        });
+        
+        if (!allAssigned) {
+            return true;  // Can't check yet
+        }
+        
+        // Get values
+        let values = arr_map(constraint.variables, fn(varName) {
+            return assignment[varName];
+        });
+        
+        return constraint.predicate(...values);
+    });
+}
+
+// ===== BACKTRACKING SEARCH =====
+
+fn csp_backtrack(csp, assignment) {
+    // Backtracking search
+    if (obj_keys(assignment).length == arr_length(csp.variables)) {
+        return assignment;  // Complete assignment
+    }
+    
+    // Select unassigned variable
+    let unassigned = arr_find(csp.variables, fn(v) {
+        return !obj_has(assignment, v.name);
+    });
+    
+    // Try each value in domain
+    let i = 0;
+    while (i < arr_length(unassigned.domain)) {
+        let value = unassigned.domain[i];
+        let newAssignment = obj_clone(assignment);
+        newAssignment[unassigned.name] = value;
+        
+        if (csp_isConsistent(csp, newAssignment)) {
+            let result = csp_backtrack(csp, newAssignment);
+            if (result != null) {
+                return result;
+            }
+        }
+        
+        i = i + 1;
+    }
+    
+    return null;  // No solution
+}
+
+fn csp_solve(csp) {
+    // Solve CSP
+    return csp_backtrack(csp, {});
+}
+
+// ===== FORWARD CHECKING =====
+
+fn csp_forwardCheck(csp, assignment, variable, value) {
+    // Forward checking
+    let domains = {};
+    
+    // Copy current domains
+    arr_forEach(csp.variables, fn(v) {
+        domains[v.name] = arr_clone(v.domain);
+    });
+    
+    // Assign value
+    domains[variable.name] = [value];
+    
+    // Prune domains
+    arr_forEach(csp.constraints, fn(constraint) {
+        if (arr_includes(constraint.variables, variable.name)) {
+            // TODO: Prune inconsistent values
+        }
+    });
+    
+    return domains;
+}
+
+// ===== ARC CONSISTENCY (AC-3) =====
+
+fn csp_ac3(csp) {
+    // AC-3 algorithm
+    let queue = [];
+    
+    // Initialize queue with all arcs
+    arr_forEach(csp.constraints, fn(constraint) {
+        let vars = constraint.variables;
+        let i = 0;
+        while (i < arr_length(vars)) {
+            let j = 0;
+            while (j < arr_length(vars)) {
+                if (i != j) {
+                    arr_push(queue, [vars[i], vars[j], constraint]);
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+    });
+    
+    // Process queue
+    while (arr_length(queue) > 0) {
+        let arc = arr_shift(queue);
+        let xi = arc[0];
+        let xj = arc[1];
+        let constraint = arc[2];
+        
+        if (csp_revise(csp, xi, xj, constraint)) {
+            if (arr_length(xi.domain) == 0) {
+                return false;  // Inconsistent
+            }
+            
+            // Add neighbors back to queue
+            // TODO: Add neighbors
+        }
+    }
+    
+    return true;  // Arc consistent
+}
+
+fn csp_revise(csp, xi, xj, constraint) {
+    // Revise domain of xi
+    let revised = false;
+    
+    let newDomain = arr_filter(xi.domain, fn(vi) {
+        // Check if there exists vj in xj.domain that satisfies constraint
+        return arr_some(xj.domain, fn(vj) {
+            let assignment = {};
+            assignment[xi.name] = vi;
+            assignment[xj.name] = vj;
+            
+            let values = arr_map(constraint.variables, fn(varName) {
+                return assignment[varName] || null;
+            });
+            
+            return constraint.predicate(...values);
+        });
+    });
+    
+    if (arr_length(newDomain) < arr_length(xi.domain)) {
+        xi.domain = newDomain;
+        revised = true;
+    }
+    
+    return revised;
+}
+
+// ===== SAT SOLVER =====
+
+fn sat_literal(variable, positive) {
+    // Create SAT literal
+    return {
+        variable: variable,
+        positive: positive
+    };
+}
+
+fn sat_clause(literals) {
+    // Create SAT clause (disjunction)
+    return {
+        literals: literals
+    };
+}
+
+fn sat_formula(clauses) {
+    // Create SAT formula (CNF)
+    return {
+        clauses: clauses
+    };
+}
+
+fn sat_dpll(formula, assignment) {
+    // DPLL algorithm
+    if (arr_length(formula.clauses) == 0) {
+        return assignment;  // Satisfied
+    }
+    
+    // Check for empty clause
+    if (arr_some(formula.clauses, fn(c) { return arr_length(c.literals) == 0; })) {
+        return null;  // Unsatisfiable
+    }
+    
+    // Unit propagation
+    let unitClause = arr_find(formula.clauses, fn(c) {
+        return arr_length(c.literals) == 1;
+    });
+    
+    if (unitClause) {
+        let literal = unitClause.literals[0];
+        let newAssignment = obj_clone(assignment);
+        newAssignment[literal.variable] = literal.positive;
+        
+        let newFormula = sat_simplify(formula, literal);
+        return sat_dpll(newFormula, newAssignment);
+    }
+    
+    // Pure literal elimination
+    // TODO: Implement pure literal elimination
+    
+    // Choose variable and branch
+    let variable = formula.clauses[0].literals[0].variable;
+    
+    // Try positive
+    let posAssignment = obj_clone(assignment);
+    posAssignment[variable] = true;
+    let posFormula = sat_simplify(formula, sat_literal(variable, true));
+    let result = sat_dpll(posFormula, posAssignment);
+    
+    if (result != null) {
+        return result;
+    }
+    
+    // Try negative
+    let negAssignment = obj_clone(assignment);
+    negAssignment[variable] = false;
+    let negFormula = sat_simplify(formula, sat_literal(variable, false));
+    return sat_dpll(negFormula, negAssignment);
+}
+
+fn sat_simplify(formula, literal) {
+    // Simplify formula given literal assignment
+    let newClauses = [];
+    
+    arr_forEach(formula.clauses, fn(clause) {
+        // Check if clause is satisfied
+        let satisfied = arr_some(clause.literals, fn(lit) {
+            return lit.variable == literal.variable && 
+                   lit.positive == literal.positive;
+        });
+        
+        if (!satisfied) {
+            // Remove opposite literal
+            let newLiterals = arr_filter(clause.literals, fn(lit) {
+                return !(lit.variable == literal.variable && 
+                        lit.positive != literal.positive);
+            });
+            
+            arr_push(newClauses, sat_clause(newLiterals));
+        }
+    });
+    
+    return sat_formula(newClauses);
+}
+
+fn sat_solve(formula) {
+    // Solve SAT problem
+    return sat_dpll(formula, {});
+}
+
+// ===== CONSTRAINT OPTIMIZATION =====
+
+fn cop_create(variables, constraints, objective) {
+    // Create constraint optimization problem
+    return {
+        variables: variables,
+        constraints: constraints,
+        objective: objective,
+        maximize: true
+    };
+}
+
+fn cop_solve(cop) {
+    // Solve COP using branch and bound
+    let bestSolution = null;
+    let bestValue = cop.maximize ? -Infinity : Infinity;
+    
+    let search = fn(assignment) {
+        if (obj_keys(assignment).length == arr_length(cop.variables)) {
+            let value = cop.objective(assignment);
+            
+            if ((cop.maximize && value > bestValue) ||
+                (!cop.maximize && value < bestValue)) {
+                bestValue = value;
+                bestSolution = assignment;
+            }
+            
+            return;
+        }
+        
+        // Select variable
+        let unassigned = arr_find(cop.variables, fn(v) {
+            return !obj_has(assignment, v.name);
+        });
+        
+        // Try values
+        arr_forEach(unassigned.domain, fn(value) {
+            let newAssignment = obj_clone(assignment);
+            newAssignment[unassigned.name] = value;
+            
+            if (csp_isConsistent({variables: cop.variables, constraints: cop.constraints}, newAssignment)) {
+                // Bound check
+                let bound = cop.objective(newAssignment);
+                
+                if ((cop.maximize && bound > bestValue) ||
+                    (!cop.maximize && bound < bestValue)) {
+                    search(newAssignment);
+                }
+            }
+        });
+    };
+    
+    search({});
+    
+    return {
+        solution: bestSolution,
+        value: bestValue
+    };
+}
+
+// ===== GLOBAL CONSTRAINTS =====
+
+fn constraint_allDifferent(variables) {
+    // All different constraint
+    return csp_constraint(variables, fn(...values) {
+        let seen = set_create();
+        
+        let i = 0;
+        while (i < arr_length(values)) {
+            if (set_has(seen, values[i])) {
+                return false;
+            }
+            set_add(seen, values[i]);
+            i = i + 1;
+        }
+        
+        return true;
+    });
+}
+
+fn constraint_sum(variables, operator, value) {
+    // Sum constraint
+    return csp_constraint(variables, fn(...values) {
+        let sum = arr_sum(values);
+        
+        if (operator == "==") {
+            return sum == value;
+        } else if (operator == "<=") {
+            return sum <= value;
+        } else if (operator == ">=") {
+            return sum >= value;
+        }
+        
+        return false;
+    });
+}

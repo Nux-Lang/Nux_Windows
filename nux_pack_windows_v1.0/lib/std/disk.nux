@@ -1,0 +1,210 @@
+# Nux Disk I/O Library
+# Storage device drivers (ATA, AHCI, NVMe)
+
+# ATA/IDE disk driver
+class ATADisk {
+    var base_port;
+    var is_master;
+    var sectors;
+    var model;
+    
+    func init(port, master) {
+        this.base_port = port;
+        this.is_master = master;
+        this.identify();
+    }
+    
+    func identify() {
+        # Select drive
+        var drive_select = 0xA0;
+        if (this.is_master == 0) {
+            drive_select = 0xB0;
+        }
+        outb(this.base_port + 6, drive_select);
+        
+        # Send IDENTIFY command
+        outb(this.base_port + 7, 0xEC);
+        
+        # Wait for ready
+        this.wait_ready();
+        
+        # Read identification data
+        var buffer = mem_alloc_aligned(512, 2);
+        var i = 0;
+        for (i = 0; i < 256; i = i + 1) {
+            var data = inw(this.base_port);
+            mem_write16(buffer + (i * 2), data);
+        }
+        
+        # Parse sectors
+        this.sectors = mem_read32(buffer + 120);
+    }
+    
+    func read_sectors(lba, count, buffer) {
+        # Select drive
+        var drive_select = 0xE0 | ((lba >> 24) & 0x0F);
+        if (this.is_master == 0) {
+            drive_select = drive_select | 0x10;
+        }
+        
+        outb(this.base_port + 6, drive_select);
+        outb(this.base_port + 2, count);
+        outb(this.base_port + 3, lba & 0xFF);
+        outb(this.base_port + 4, (lba >> 8) & 0xFF);
+        outb(this.base_port + 5, (lba >> 16) & 0xFF);
+        outb(this.base_port + 7, 0x20);
+        
+        var i = 0;
+        for (i = 0; i < count; i = i + 1) {
+            this.wait_ready();
+            
+            var j = 0;
+            for (j = 0; j < 256; j = j + 1) {
+                var data = inw(this.base_port);
+                mem_write16(buffer + (i * 512) + (j * 2), data);
+            }
+        }
+    }
+    
+    func write_sectors(lba, count, buffer) {
+        var drive_select = 0xE0 | ((lba >> 24) & 0x0F);
+        if (this.is_master == 0) {
+            drive_select = drive_select | 0x10;
+        }
+        
+        outb(this.base_port + 6, drive_select);
+        outb(this.base_port + 2, count);
+        outb(this.base_port + 3, lba & 0xFF);
+        outb(this.base_port + 4, (lba >> 8) & 0xFF);
+        outb(this.base_port + 5, (lba >> 16) & 0xFF);
+        outb(this.base_port + 7, 0x30);
+        
+        var i = 0;
+        for (i = 0; i < count; i = i + 1) {
+            this.wait_ready();
+            
+            var j = 0;
+            for (j = 0; j < 256; j = j + 1) {
+                var data = mem_read16(buffer + (i * 512) + (j * 2));
+                outw(this.base_port, data);
+            }
+            
+            # Flush cache
+            outb(this.base_port + 7, 0xE7);
+            this.wait_ready();
+        }
+    }
+    
+    func wait_ready() {
+        for (;;) {
+            var status = inb(this.base_port + 7);
+            if ((status & 0x80) == 0) {
+                if ((status & 0x08) != 0) {
+                    break;
+                }
+            }
+            cpu_pause();
+        }
+    }
+}
+
+# AHCI (SATA) controller
+class AHCIController {
+    var abar;
+    var ports;
+    var num_ports;
+    
+    func init(pci_device) {
+        var bar5 = pci_device.read_bar(5);
+        this.abar = bar5 & 0xFFFFFFF0;
+        
+        # Enable AHCI mode
+        var ghc = mem_read32(this.abar + 4);
+        ghc = ghc | 0x80000000;
+        mem_write32(this.abar + 4, ghc);
+        
+        # Get implemented ports
+        var pi = mem_read32(this.abar + 0x0C);
+        this.num_ports = 0;
+        
+        var i = 0;
+        for (i = 0; i < 32; i = i + 1) {
+            if ((pi & (1 << i)) != 0) {
+                this.num_ports = this.num_ports + 1;
+            }
+        }
+    }
+    
+    func read_port(port_num, lba, count, buffer) {
+        var port_base = this.abar + 0x100 + (port_num * 0x80);
+        
+        # Build command FIS
+        var cmd_fis = mem_alloc_aligned(64, 64);
+        mem_write8(cmd_fis, 0x27);
+        mem_write8(cmd_fis + 1, 0x80);
+        mem_write8(cmd_fis + 2, 0x25);
+        
+        mem_write32(cmd_fis + 4, lba);
+        mem_write16(cmd_fis + 12, count);
+        
+        # Issue command
+        asm {
+            port_base
+            cmd_fis
+            buffer
+            OP_AHCI_COMMAND
+        }
+    }
+}
+
+# NVMe controller
+class NVMeController {
+    var bar0;
+    var admin_queue;
+    var io_queue;
+    
+    func init(pci_device) {
+        var bar0_val = pci_device.read_bar(0);
+        this.bar0 = bar0_val & 0xFFFFFFFFFFFFFFF0;
+        
+        # Reset controller
+        var cc = mem_read32(this.bar0 + 0x14);
+        cc = cc & 0xFFFFFFFE;
+        mem_write32(this.bar0 + 0x14, cc);
+        
+        # Wait for ready
+        for (;;) {
+            var csts = mem_read32(this.bar0 + 0x1C);
+            if ((csts & 0x01) == 0) {
+                break;
+            }
+            thread_yield();
+        }
+        
+        # Configure admin queue
+        this.setup_admin_queue();
+    }
+    
+    func setup_admin_queue() {
+        var queue_size = 64;
+        var sq_addr = mem_alloc_aligned(queue_size * 64, 4096);
+        var cq_addr = mem_alloc_aligned(queue_size * 16, 4096);
+        
+        mem_write64(this.bar0 + 0x28, sq_addr);
+        mem_write64(this.bar0 + 0x30, cq_addr);
+        
+        var aqa = ((queue_size - 1) << 16) | (queue_size - 1);
+        mem_write32(this.bar0 + 0x24, aqa);
+    }
+    
+    func read_blocks(nsid, lba, count, buffer) {
+        asm {
+            this.bar0
+            nsid
+            lba
+            count
+            buffer
+            OP_NVME_READ
+        }
+    }
+}

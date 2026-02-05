@@ -1,0 +1,69 @@
+# Nux JSON Library
+# Simple JSON utilities
+
+# Parse JSON string to object
+func json_parse(json_str) {
+    asm {
+        json_str
+        OP_JSON_PARSE
+    }
+}
+
+# Convert object to JSON string
+func json_stringify(obj) {
+    asm {
+        obj
+        OP_JSON_STRINGIFY
+    }
+}
+
+# Get value from JSON object by key
+func json_get(json_obj, key) {
+    asm {
+        json_obj
+        key
+        OP_JSON_GET
+    }
+}
+
+# Set value in JSON object
+func json_set(json_obj, key, value) {
+    asm {
+        json_obj
+        key
+        value
+        OP_JSON_SET
+    }
+}
+
+# Create empty JSON object
+func json_object() {
+    asm {
+        OP_JSON_OBJECT
+    }
+}
+
+# Create empty JSON array
+func json_array() {
+    asm {
+        OP_JSON_ARRAY
+    }
+}
+
+# Add item to JSON array
+func json_array_push(json_arr, value) {
+    asm {
+        json_arr
+        value
+        OP_JSON_ARRAY_PUSH
+    }
+}
+
+# Get item from JSON array by index
+func json_array_get(json_arr, index) {
+    asm {
+        json_arr
+        index
+        OP_JSON_ARRAY_GET
+    }
+}

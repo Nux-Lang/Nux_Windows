@@ -1,0 +1,558 @@
+# Nux Driver Framework Library
+# Hardware abstraction and device drivers
+
+import "os.kernel";
+
+# ============================================================
+# DEVICE TYPES
+# ============================================================
+
+var DEV_CHAR = 0;
+var DEV_BLOCK = 1;
+var DEV_NET = 2;
+
+# ============================================================
+# DEVICE OPERATIONS
+# ============================================================
+
+class DeviceOps {
+    var open;
+    var close;
+    var read;
+    var write;
+    var ioctl;
+    var mmap;
+    var poll;
+    
+    func init() {
+        this.open = 0;
+        this.close = 0;
+        this.read = 0;
+        this.write = 0;
+        this.ioctl = 0;
+        this.mmap = 0;
+        this.poll = 0;
+    }
+}
+
+# ============================================================
+# DEVICE STRUCTURE
+# ============================================================
+
+class Device {
+    var name;
+    var major;
+    var minor;
+    var device_type;
+    var ops;
+    var private_data;
+    var ref_count;
+    var spinlock;
+    
+    func init(dev_name, maj, min, dtype) {
+        this.name = dev_name;
+        this.major = maj;
+        this.minor = min;
+        this.device_type = dtype;
+        this.ops = new DeviceOps();
+        this.ops.init();
+        this.ref_count = 0;
+        this.spinlock = new Spinlock();
+        this.spinlock.init();
+    }
+    
+    func open(flags) {
+        if (this.ops.open != 0) {
+            return this.ops.open(this, flags);
+        }
+        this.ref_count = this.ref_count + 1;
+        return 0;
+    }
+    
+    func close() {
+        if (this.ops.close != 0) {
+            return this.ops.close(this);
+        }
+        this.ref_count = this.ref_count - 1;
+        return 0;
+    }
+    
+    func read(buffer, count) {
+        if (this.ops.read != 0) {
+            return this.ops.read(this, buffer, count);
+        }
+        return -1;
+    }
+    
+    func write(buffer, count) {
+        if (this.ops.write != 0) {
+            return this.ops.write(this, buffer, count);
+        }
+        return -1;
+    }
+    
+    func ioctl(cmd, arg) {
+        if (this.ops.ioctl != 0) {
+            return this.ops.ioctl(this, cmd, arg);
+        }
+        return -1;
+    }
+}
+
+# ============================================================
+# DEVICE REGISTRY
+# ============================================================
+
+class DeviceRegistry {
+    var devices;
+    var major_numbers;
+    var next_major;
+    
+    func init() {
+        this.devices = new Map();
+        this.devices.init();
+        this.major_numbers = new Map();
+        this.major_numbers.init();
+        this.next_major = 1;
+    }
+    
+    func register_device(device) {
+        var key = device.major * 256 + device.minor;
+        this.devices.put(key, device);
+        this.major_numbers.put(device.name, device.major);
+    }
+    
+    func unregister_device(major, minor) {
+        var key = major * 256 + minor;
+        this.devices.remove(key);
+    }
+    
+    func get_device(major, minor) {
+        var key = major * 256 + minor;
+        return this.devices.get(key);
+    }
+    
+    func allocate_major() {
+        var major = this.next_major;
+        this.next_major = this.next_major + 1;
+        return major;
+    }
+}
+
+# ============================================================
+# BLOCK DEVICE
+# ============================================================
+
+class BlockDevice {
+    var device;
+    var sector_size;
+    var total_sectors;
+    var read_only;
+    var request_queue;
+    
+    func init(dev, sect_size, total) {
+        this.device = dev;
+        this.sector_size = sect_size;
+        this.total_sectors = total;
+        this.read_only = 0;
+        this.request_queue = new List();
+        this.request_queue.init();
+    }
+    
+    func read_sector(sector, buffer) {
+        if (sector >= this.total_sectors) { return -1; }
+        
+        var request = new Map();
+        request.init();
+        request.put("type", "read");
+        request.put("sector", sector);
+        request.put("buffer", buffer);
+        
+        return this.submit_request(request);
+    }
+    
+    func write_sector(sector, buffer) {
+        if (this.read_only == 1) { return -1; }
+        if (sector >= this.total_sectors) { return -1; }
+        
+        var request = new Map();
+        request.init();
+        request.put("type", "write");
+        request.put("sector", sector);
+        request.put("buffer", buffer);
+        
+        return this.submit_request(request);
+    }
+    
+    func submit_request(request) {
+        this.request_queue.append(request);
+        return this.process_queue();
+    }
+    
+    func process_queue() {
+        while (this.request_queue.length() > 0) {
+            var request = this.request_queue.remove(0);
+            # Process request
+        }
+        return 0;
+    }
+}
+
+# ============================================================
+# CHARACTER DEVICE
+# ============================================================
+
+class CharDevice {
+    var device;
+    var read_buffer;
+    var write_buffer;
+    var buffer_size;
+    
+    func init(dev, buf_size) {
+        this.device = dev;
+        this.buffer_size = buf_size;
+        
+        this.read_buffer = new List();
+        this.read_buffer.init();
+        this.write_buffer = new List();
+        this.write_buffer.init();
+    }
+    
+    func read(buffer, count) {
+        var bytes_read = 0;
+        while (bytes_read < count && this.read_buffer.length() > 0) {
+            buffer.append(this.read_buffer.remove(0));
+            bytes_read = bytes_read + 1;
+        }
+        return bytes_read;
+    }
+    
+    func write(buffer, count) {
+        var bytes_written = 0;
+        var i = 0;
+        for (i = 0; i < count; i = i + 1) {
+            if (this.write_buffer.length() < this.buffer_size) {
+                this.write_buffer.append(buffer.get(i));
+                bytes_written = bytes_written + 1;
+            }
+        }
+        return bytes_written;
+    }
+}
+
+# ============================================================
+# INTERRUPT-DRIVEN DRIVER
+# ============================================================
+
+class IRQHandler {
+    var irq_number;
+    var handler;
+    var device;
+    var shared;
+    
+    func init(irq, dev) {
+        this.irq_number = irq;
+        this.device = dev;
+        this.shared = 0;
+    }
+    
+    func handle_interrupt(context) {
+        if (this.handler != 0) {
+            return this.handler(this.device, context);
+        }
+        return 0;
+    }
+}
+
+class IRQManager {
+    var handlers;
+    
+    func init() {
+        this.handlers = new Map();
+        this.handlers.init();
+    }
+    
+    func register_handler(irq, handler) {
+        if (this.handlers.has(irq) == 0) {
+            var list = new List();
+            list.init();
+            this.handlers.put(irq, list);
+        }
+        this.handlers.get(irq).append(handler);
+    }
+    
+    func unregister_handler(irq, handler) {
+        if (this.handlers.has(irq)) {
+            var list = this.handlers.get(irq);
+            var i = 0;
+            for (i = 0; i < list.length(); i = i + 1) {
+                if (list.get(i) == handler) {
+                    list.remove(i);
+                    break;
+                }
+            }
+        }
+    }
+    
+    func dispatch(irq, context) {
+        if (this.handlers.has(irq)) {
+            var list = this.handlers.get(irq);
+            var i = 0;
+            for (i = 0; i < list.length(); i = i + 1) {
+                list.get(i).handle_interrupt(context);
+            }
+        }
+    }
+}
+
+# ============================================================
+# PCI BUS
+# ============================================================
+
+class PCIDevice {
+    var bus;
+    var slot;
+    var function;
+    var vendor_id;
+    var device_id;
+    var class_code;
+    var subclass;
+    var bar;
+    var irq;
+    
+    func init(b, s, f) {
+        this.bus = b;
+        this.slot = s;
+        this.function = f;
+        this.bar = new List();
+        this.bar.init();
+    }
+    
+    func read_config(offset) {
+        var addr = 0x80000000 | (this.bus << 16) | (this.slot << 11) | 
+                   (this.function << 8) | (offset & 0xFC);
+        # outl(0xCF8, addr)
+        # return inl(0xCFC)
+        return 0;
+    }
+    
+    func write_config(offset, value) {
+        var addr = 0x80000000 | (this.bus << 16) | (this.slot << 11) | 
+                   (this.function << 8) | (offset & 0xFC);
+        # outl(0xCF8, addr)
+        # outl(0xCFC, value)
+    }
+    
+    func enable_bus_mastering() {
+        var cmd = this.read_config(0x04);
+        cmd = cmd | 0x04;
+        this.write_config(0x04, cmd);
+    }
+    
+    func get_bar_address(bar_num) {
+        var bar = this.read_config(0x10 + bar_num * 4);
+        if ((bar & 0x01) == 0) {
+            # Memory BAR
+            return bar & 0xFFFFFFF0;
+        } else {
+            # I/O BAR
+            return bar & 0xFFFFFFFC;
+        }
+    }
+}
+
+class PCIBus {
+    var devices;
+    
+    func init() {
+        this.devices = new List();
+        this.devices.init();
+    }
+    
+    func scan() {
+        var bus = 0;
+        for (bus = 0; bus < 256; bus = bus + 1) {
+            var slot = 0;
+            for (slot = 0; slot < 32; slot = slot + 1) {
+                var func = 0;
+                for (func = 0; func < 8; func = func + 1) {
+                    var dev = new PCIDevice();
+                    dev.init(bus, slot, func);
+                    
+                    var vendor = dev.read_config(0x00) & 0xFFFF;
+                    if (vendor != 0xFFFF) {
+                        dev.vendor_id = vendor;
+                        dev.device_id = (dev.read_config(0x00) >> 16) & 0xFFFF;
+                        dev.class_code = (dev.read_config(0x08) >> 24) & 0xFF;
+                        dev.subclass = (dev.read_config(0x08) >> 16) & 0xFF;
+                        dev.irq = dev.read_config(0x3C) & 0xFF;
+                        this.devices.append(dev);
+                    }
+                }
+            }
+        }
+    }
+    
+    func find_device(vendor_id, device_id) {
+        var i = 0;
+        for (i = 0; i < this.devices.length(); i = i + 1) {
+            var dev = this.devices.get(i);
+            if (dev.vendor_id == vendor_id && dev.device_id == device_id) {
+                return dev;
+            }
+        }
+        return 0;
+    }
+    
+    func find_by_class(class_code, subclass) {
+        var result = new List();
+        result.init();
+        var i = 0;
+        for (i = 0; i < this.devices.length(); i = i + 1) {
+            var dev = this.devices.get(i);
+            if (dev.class_code == class_code && dev.subclass == subclass) {
+                result.append(dev);
+            }
+        }
+        return result;
+    }
+}
+
+# ============================================================
+# DMA ENGINE
+# ============================================================
+
+class DMAChannel {
+    var channel;
+    var address;
+    var count;
+    var mode;
+    var page;
+    
+    func init(ch) {
+        this.channel = ch;
+    }
+    
+    func setup(addr, cnt, read_mode) {
+        this.address = addr;
+        this.count = cnt;
+        
+        # Mask channel
+        # Set mode
+        # Set address
+        # Set count
+        # Unmask channel
+    }
+    
+    func single_transfer(addr, cnt, read_mode) {
+        this.setup(addr, cnt, read_mode);
+        # Wait for transfer complete
+    }
+}
+
+# ============================================================
+# EXAMPLE DRIVERS
+# ============================================================
+
+class KeyboardDriver {
+    var device;
+    var buffer;
+    var irq_handler;
+    
+    func init() {
+        this.device = new Device();
+        this.device.init("keyboard", 1, 0, DEV_CHAR);
+        
+        this.buffer = new List();
+        this.buffer.init();
+    }
+    
+    func probe() {
+        # Initialize keyboard controller
+        # Enable interrupts
+        return 0;
+    }
+    
+    func interrupt_handler(context) {
+        var scancode = 0;  # inb(0x60)
+        this.buffer.append(scancode);
+    }
+    
+    func read(buf, count) {
+        var bytes_read = 0;
+        while (bytes_read < count && this.buffer.length() > 0) {
+            buf.append(this.buffer.remove(0));
+            bytes_read = bytes_read + 1;
+        }
+        return bytes_read;
+    }
+}
+
+class SerialDriver {
+    var device;
+    var port;
+    var baud_rate;
+    
+    func init(port_addr) {
+        this.device = new Device();
+        this.device.init("serial", 4, 0, DEV_CHAR);
+        this.port = port_addr;
+        this.baud_rate = 115200;
+    }
+    
+    func probe() {
+        # Set DLAB
+        # Set baud divisor
+        # Set 8N1
+        # Enable FIFO
+        # Enable interrupts
+        return 0;
+    }
+    
+    func write_byte(b) {
+        # while ((inb(port + 5) & 0x20) == 0) {}
+        # outb(port, b)
+    }
+    
+    func read_byte() {
+        # while ((inb(port + 5) & 0x01) == 0) {}
+        # return inb(port)
+        return 0;
+    }
+}
+
+class TimerDriver {
+    var device;
+    var frequency;
+    var ticks;
+    
+    func init(freq) {
+        this.device = new Device();
+        this.device.init("timer", 10, 0, DEV_CHAR);
+        this.frequency = freq;
+        this.ticks = 0;
+    }
+    
+    func probe() {
+        var divisor = 1193180 / this.frequency;
+        # outb(0x43, 0x36)
+        # outb(0x40, divisor & 0xFF)
+        # outb(0x40, (divisor >> 8) & 0xFF)
+        return 0;
+    }
+    
+    func interrupt_handler(context) {
+        this.ticks = this.ticks + 1;
+    }
+    
+    func get_ticks() {
+        return this.ticks;
+    }
+    
+    func sleep_ticks(count) {
+        var target = this.ticks + count;
+        while (this.ticks < target) {
+            # Yield
+        }
+    }
+}

@@ -1,0 +1,83 @@
+# Nux DateTime Library
+# Date and time utilities
+
+# Get current timestamp (milliseconds since epoch)
+func now() {
+    asm {
+        OP_TIME_NOW
+    }
+}
+
+# Get current year
+func year() {
+    asm {
+        OP_TIME_YEAR
+    }
+}
+
+# Get current month (1-12)
+func month() {
+    asm {
+        OP_TIME_MONTH
+    }
+}
+
+# Get current day (1-31)
+func day() {
+    asm {
+        OP_TIME_DAY
+    }
+}
+
+# Get current hour (0-23)
+func hour() {
+    asm {
+        OP_TIME_HOUR
+    }
+}
+
+# Get current minute (0-59)
+func minute() {
+    asm {
+        OP_TIME_MINUTE
+    }
+}
+
+# Get current second (0-59)
+func second() {
+    asm {
+        OP_TIME_SECOND
+    }
+}
+
+class DateTime {
+    var timestamp;
+    
+    func init(ts) {
+        this.timestamp = ts;
+    }
+    
+    func now_static() {
+        return now();
+    }
+    
+    func add_seconds(seconds) {
+        this.timestamp = this.timestamp + (seconds * 1000);
+    }
+    
+    func add_minutes(minutes) {
+        this.add_seconds(minutes * 60);
+    }
+    
+    func add_hours(hours) {
+        this.add_minutes(hours * 60);
+    }
+    
+    func add_days(days) {
+        this.add_hours(days * 24);
+    }
+    
+    func diff(other_timestamp) {
+        return this.timestamp - other_timestamp;
+    }
+}

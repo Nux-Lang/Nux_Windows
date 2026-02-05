@@ -1,0 +1,33 @@
+# Time and Delay Library for Embedded Nux
+
+# Delay in milliseconds
+func delay(ms) {
+    asm {
+        ms
+        OP_DELAY_MS
+    }
+}
+
+# Delay in microseconds
+func delayMicroseconds(us) {
+    asm {
+        us
+        OP_DELAY_US
+    }
+}
+
+# Get milliseconds since boot
+func millis() {
+    asm {
+        OP_MILLIS
+    }
+    return 0; # Placeholder
+}
+
+# Get microseconds since boot
+func micros() {
+    asm {
+        OP_MICROS
+    }
+    return 0; # Placeholder
+}

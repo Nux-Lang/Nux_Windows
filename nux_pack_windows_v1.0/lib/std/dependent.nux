@@ -1,0 +1,332 @@
+// Nux Dependent Types
+// Advanced type-level programming with dependent types
+
+// ===== DEPENDENT TYPE SYSTEM =====
+
+// Dependent types allow types to depend on values
+// Example: Vector<n> where n is the length
+
+class DependentType {
+    fn constructor(name, dependencies) {
+        this.name = name;
+        this.dependencies = dependencies;  // Values this type depends on
+    }
+}
+
+// ===== LENGTH-INDEXED VECTORS =====
+
+class Vector<n: Nat> {
+    fn constructor(elements) {
+        if (arr_length(elements) != n) {
+            throw new TypeError("Vector length mismatch");
+        }
+        this.elements = elements;
+        this.length = n;
+    }
+    
+    // Type-safe concatenation
+    fn concat<m: Nat>(other: Vector<m>): Vector<n + m> {
+        return new Vector<n + m>(arr_concat(this.elements, other.elements));
+    }
+    
+    // Type-safe head (only works if n > 0)
+    fn head(): T where n > 0 {
+        return this.elements[0];
+    }
+    
+    // Type-safe tail
+    fn tail(): Vector<n - 1> where n > 0 {
+        return new Vector<n - 1>(arr_slice(this.elements, 1));
+    }
+}
+
+// ===== REFINEMENT TYPES =====
+
+// Refinement types add predicates to types
+// Example: {x: int | x > 0} (positive integers)
+
+class RefinementType {
+    fn constructor(baseType, predicate) {
+        this.baseType = baseType;
+        this.predicate = predicate;
+    }
+    
+    fn check(value) {
+        if (!this.predicate(value)) {
+            throw new TypeError("Refinement predicate failed");
+        }
+        return value;
+    }
+}
+
+// Type aliases with refinements
+type Positive = {x: int | x > 0};
+type NonEmpty<T> = {arr: T[] | arr_length(arr) > 0};
+type Email = {s: string | str_contains(s, "@")};
+
+fn divide(a: int, b: Positive): int {
+    // b is guaranteed to be positive, no division by zero!
+    return a / b;
+}
+
+fn head<T>(arr: NonEmpty<T>): T {
+    // arr is guaranteed non-empty, safe to access [0]
+    return arr[0];
+}
+
+// ===== INDEXED TYPES =====
+
+// Types indexed by other types or values
+
+class Matrix<rows: Nat, cols: Nat, T> {
+    fn constructor(data) {
+        this.data = data;
+        this.rows = rows;
+        this.cols = cols;
+    }
+    
+    // Type-safe matrix multiplication
+    fn multiply<k: Nat>(other: Matrix<cols, k, T>): Matrix<rows, k, T> {
+        let result = [];
+        
+        let i = 0;
+        while (i < rows) {
+            let row = [];
+            let j = 0;
+            while (j < k) {
+                let sum = 0;
+                let m = 0;
+                while (m < cols) {
+                    sum = sum + this.data[i][m] * other.data[m][j];
+                    m = m + 1;
+                }
+                arr_push(row, sum);
+                j = j + 1;
+            }
+            arr_push(result, row);
+            i = i + 1;
+        }
+        
+        return new Matrix<rows, k, T>(result);
+    }
+}
+
+// ===== PHANTOM TYPES =====
+
+// Types that exist only at compile time for type safety
+
+class Phantom<Tag> {
+    fn constructor(value) {
+        this.value = value;
+    }
+}
+
+// Tagged types for type safety
+type Meters = Phantom<"meters">;
+type Feet = Phantom<"feet">;
+
+fn meters(value: float): Meters {
+    return new Phantom<"meters">(value);
+}
+
+fn feet(value: float): Feet {
+    return new Phantom<"feet">(value);
+}
+
+fn addMeters(a: Meters, b: Meters): Meters {
+    return meters(a.value + b.value);
+}
+
+// This would be a compile error:
+// addMeters(meters(5), feet(3))  // Type mismatch!
+
+// ===== SINGLETON TYPES =====
+
+// Types with exactly one value
+
+class Singleton<value> {
+    fn constructor() {
+        this.value = value;
+    }
+}
+
+type True = Singleton<true>;
+type False = Singleton<false>;
+
+// ===== EQUALITY TYPES =====
+
+// Prove two values are equal at type level
+
+class Equals<a, b> {
+    fn constructor(proof) {
+        this.proof = proof;
+    }
+    
+    fn refl(): Equals<a, a> {
+        return new Equals<a, a>(fn(x) { return x; });
+    }
+    
+    fn sym(): Equals<b, a> {
+        return new Equals<b, a>(this.proof);
+    }
+    
+    fn trans<c>(other: Equals<b, c>): Equals<a, c> {
+        return new Equals<a, c>(fn(x) {
+            return other.proof(this.proof(x));
+        });
+    }
+}
+
+// ===== PROOF-CARRYING CODE =====
+
+// Code that carries proofs of correctness
+
+class Proof {
+    fn constructor(proposition, evidence) {
+        this.proposition = proposition;
+        this.evidence = evidence;
+    }
+}
+
+fn sort_preserves_length<T>(arr: T[]): Proof {
+    let sorted = arr_sort(arr);
+    
+    return new Proof(
+        "arr_length(sorted) == arr_length(arr)",
+        arr_length(sorted) == arr_length(arr)
+    );
+}
+
+fn binary_search_correct<T>(arr: T[], target: T): Proof {
+    // Proof that binary search is correct
+    return new Proof(
+        "If found, arr[index] == target",
+        true  // Actual proof would be more complex
+    );
+}
+
+// ===== TYPE-LEVEL COMPUTATION =====
+
+// Compute types at compile time
+
+class TypeCompute {
+    // Type-level addition
+    fn add<a: Nat, b: Nat>(): Nat {
+        return a + b;
+    }
+    
+    // Type-level multiplication
+    fn mul<a: Nat, b: Nat>(): Nat {
+        return a * b;
+    }
+    
+    // Type-level if
+    fn if<cond: Bool, then: Type, else: Type>(): Type {
+        if (cond) {
+            return then;
+        } else {
+            return else;
+        }
+    }
+}
+
+// ===== DEPENDENT PAIRS (SIGMA TYPES) =====
+
+class Sigma<A, B: A -> Type> {
+    fn constructor(fst, snd) {
+        this.fst = fst;  // First component of type A
+        this.snd = snd;  // Second component of type B(fst)
+    }
+}
+
+// Example: Pair of a number and a vector of that length
+fn example_sigma(): Sigma<Nat, fn(n) { return Vector<n>; }> {
+    let n = 5;
+    let vec = new Vector<5>([1, 2, 3, 4, 5]);
+    return new Sigma(n, vec);
+}
+
+// ===== DEPENDENT FUNCTIONS (PI TYPES) =====
+
+class Pi<A, B: A -> Type> {
+    fn constructor(fn) {
+        this.fn = fn;
+    }
+    
+    fn apply(a: A): B(a) {
+        return this.fn(a);
+    }
+}
+
+// Example: Function that takes n and returns Vector<n>
+fn replicate<T>(n: Nat, value: T): Vector<n> {
+    let arr = [];
+    let i = 0;
+    while (i < n) {
+        arr_push(arr, value);
+        i = i + 1;
+    }
+    return new Vector<n>(arr);
+}
+
+// ===== INDUCTIVE TYPES =====
+
+class Nat {
+    // Natural numbers as inductive type
+    // Zero | Succ(Nat)
+}
+
+class Zero extends Nat {
+    fn constructor() {
+        super();
+    }
+}
+
+class Succ extends Nat {
+    fn constructor(pred) {
+        super();
+        this.pred = pred;
+    }
+}
+
+fn nat_to_int(n: Nat): int {
+    if (n instanceof Zero) {
+        return 0;
+    } else {
+        return 1 + nat_to_int(n.pred);
+    }
+}
+
+// ===== UNIVERSE LEVELS =====
+
+// Avoid Russell's paradox with universe hierarchy
+
+class Universe<level: Nat> {
+    fn constructor() {
+        this.level = level;
+    }
+}
+
+type Type0 = Universe<0>;  // Types
+type Type1 = Universe<1>;  // Types of types
+type Type2 = Universe<2>;  // Types of types of types
+
+// ===== QUOTIENT TYPES =====
+
+// Types with custom equality
+
+class Quotient<T, equiv: (T, T) -> Bool> {
+    fn constructor(value) {
+        this.value = value;
+        this.equiv = equiv;
+    }
+    
+    fn equals(other: Quotient<T, equiv>): Bool {
+        return this.equiv(this.value, other.value);
+    }
+}
+
+// Example: Rational numbers with equivalence
+type Rational = Quotient<{num: int, den: int}, fn(a, b) {
+    return a.num * b.den == b.num * a.den;
+}>;

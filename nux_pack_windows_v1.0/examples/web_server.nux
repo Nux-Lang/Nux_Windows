@@ -1,0 +1,34 @@
+# Simple Web Server Example
+# Demonstrates HTTP server capabilities in Nux
+
+import "std.io";
+import "std.networking";
+
+func main() {
+    println("Starting Nux Web Server...");
+    
+    # Create HTTP server on port 8080
+    var server = new HTTPServer();
+    server.bind("0.0.0.0", 8080);
+    
+    println("Server running at http://localhost:8080");
+    println("Press Ctrl+C to stop");
+    
+    # Define route handlers
+    server.route("/", func(req, res) {
+        res.send_html("<h1>Welcome to Nux Web Server!</h1>");
+    });
+    
+    server.route("/api/hello", func(req, res) {
+        res.send_json({
+            "message": "Hello from Nux!",
+            "version": "1.0.0",
+            "timestamp": time()
+        });
+    });
+    
+    # Start listening for requests
+    server.listen();
+}
+
+main();

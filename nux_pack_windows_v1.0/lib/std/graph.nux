@@ -1,0 +1,172 @@
+# Nux Graph Library
+# Graph algorithms and data structures
+
+import "std.collections";
+
+class Graph {
+    var vertices;
+    var edges;
+    var directed;
+    
+    func init(is_directed) {
+        this.directed = is_directed;
+        this.vertices = new Map();
+        this.vertices.init();
+        this.edges = new List();
+        this.edges.init();
+    }
+    
+    func add_vertex(id, data) {
+        this.vertices.put(id, data);
+    }
+    
+    func add_edge(from, to, weight) {
+        var edge = new Map();
+        edge.init();
+        edge.put("from", from);
+        edge.put("to", to);
+        edge.put("weight", weight);
+        
+        this.edges.append(edge);
+        
+        if (this.directed == 0) {
+            var reverse_edge = new Map();
+            reverse_edge.init();
+            reverse_edge.put("from", to);
+            reverse_edge.put("to", from);
+            reverse_edge.put("weight", weight);
+            
+            this.edges.append(reverse_edge);
+        }
+    }
+    
+    func get_neighbors(vertex_id) {
+        var neighbors = new List();
+        neighbors.init();
+        
+        var i = 0;
+        for (i = 0; i < this.edges.length(); i = i + 1) {
+            var edge = this.edges.get(i);
+            if (edge.get("from") == vertex_id) {
+                neighbors.append(edge.get("to"));
+            }
+        }
+        
+        return neighbors;
+    }
+    
+    func bfs(start_vertex) {
+        var visited = new Map();
+        visited.init();
+        
+        var queue = new List();
+        queue.init();
+        queue.append(start_vertex);
+        
+        visited.put(start_vertex, 1);
+        
+        for (;;) {
+            if (queue.length() == 0) {
+                break;
+            }
+            
+            var current = queue.get(0);
+            queue.remove(0);
+            
+            var neighbors = this.get_neighbors(current);
+            
+            var i = 0;
+            for (i = 0; i < neighbors.length(); i = i + 1) {
+                var neighbor = neighbors.get(i);
+                
+                if (visited.get(neighbor) == 0) {
+                    visited.put(neighbor, 1);
+                    queue.append(neighbor);
+                }
+            }
+        }
+        
+        return visited;
+    }
+    
+    func dfs(start_vertex) {
+        var visited = new Map();
+        visited.init();
+        
+        this.dfs_helper(start_vertex, visited);
+        
+        return visited;
+    }
+    
+    func dfs_helper(vertex, visited) {
+        visited.put(vertex, 1);
+        
+        var neighbors = this.get_neighbors(vertex);
+        
+        var i = 0;
+        for (i = 0; i < neighbors.length(); i = i + 1) {
+            var neighbor = neighbors.get(i);
+            
+            if (visited.get(neighbor) == 0) {
+                this.dfs_helper(neighbor, visited);
+            }
+        }
+    }
+    
+    func dijkstra(start_vertex) {
+        var distances = new Map();
+        distances.init();
+        
+        var previous = new Map();
+        previous.init();
+        
+        var unvisited = new List();
+        unvisited.init();
+        
+        # Initialize
+        # ... (implementation)
+        
+        return distances;
+    }
+    
+    func topological_sort() {
+        var in_degree = new Map();
+        in_degree.init();
+        
+        var queue = new List();
+        queue.init();
+        
+        var result = new List();
+        result.init();
+        
+        # Kahn's algorithm
+        # ... (implementation)
+        
+        return result;
+    }
+}
+
+func minimum_spanning_tree_kruskal(graph) {
+    var edges = graph.edges;
+    
+    # Sort edges by weight
+    # ... (sorting)
+    
+    var mst = new List();
+    mst.init();
+    
+    # Union-Find
+    # ... (implementation)
+    
+    return mst;
+}
+
+func strongly_connected_components(graph) {
+    var components = new List();
+    components.init();
+    
+    # Tarjan's algorithm
+    # ... (implementation)
+    
+    return components;
+}

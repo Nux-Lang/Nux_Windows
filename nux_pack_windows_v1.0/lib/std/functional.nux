@@ -1,0 +1,354 @@
+// Nux Standard Library - Functional Programming
+// Higher-order functions and functional utilities
+
+// ===== FUNCTION COMPOSITION =====
+
+fn compose(f, g) {
+    // Compose two functions: compose(f, g)(x) = f(g(x))
+    return fn(x) {
+        return f(g(x));
+    };
+}
+
+fn pipe(functions) {
+    // Pipe functions left to right
+    return fn(x) {
+        let result = x;
+        let i = 0;
+        
+        while (i < arr_length(functions)) {
+            result = functions[i](result);
+            i = i + 1;
+        }
+        
+        return result;
+    };
+}
+
+// ===== PARTIAL APPLICATION =====
+
+fn partial(fn, args) {
+    // Partially apply function
+    return fn(...restArgs) {
+        return fn(...args, ...restArgs);
+    };
+}
+
+fn curry(fn) {
+    // Curry function
+    return fn(a) {
+        return fn(b) {
+            return fn(a, b);
+        };
+    };
+}
+
+// ===== MEMOIZATION =====
+
+fn memoize(fn) {
+    // Memoize function results
+    let cache = {};
+    
+    return fn(...args) {
+        let key = arr_join(args, ",");
+        
+        if (obj_has(cache, key)) {
+            return cache[key];
+        }
+        
+        let result = fn(...args);
+        cache[key] = result;
+        return result;
+    };
+}
+
+// ===== FUNCTION UTILITIES =====
+
+fn identity(x) {
+    // Identity function
+    return x;
+}
+
+fn constant(value) {
+    // Return constant function
+    return fn() {
+        return value;
+    };
+}
+
+fn noop() {
+    // No-operation function
+    return;
+}
+
+fn once(fn) {
+    // Execute function only once
+    let called = false;
+    let result = null;
+    
+    return fn(...args) {
+        if (!called) {
+            result = fn(...args);
+            called = true;
+        }
+        return result;
+    };
+}
+
+fn times(n, fn) {
+    // Execute function n times
+    let i = 0;
+    let results = [];
+    
+    while (i < n) {
+        arr_push(results, fn(i));
+        i = i + 1;
+    }
+    
+    return results;
+}
+
+// ===== PREDICATES =====
+
+fn not(predicate) {
+    // Negate predicate
+    return fn(x) {
+        return !predicate(x);
+    };
+}
+
+fn and(predicate1, predicate2) {
+    // AND two predicates
+    return fn(x) {
+        return predicate1(x) && predicate2(x);
+    };
+}
+
+fn or(predicate1, predicate2) {
+    // OR two predicates
+    return fn(x) {
+        return predicate1(x) || predicate2(x);
+    };
+}
+
+// ===== ARRAY FUNCTIONAL OPERATIONS =====
+
+fn flatMap(arr, fn) {
+    // Map and flatten
+    let mapped = arr_map(arr, fn);
+    return arr_flatten(mapped);
+}
+
+fn partition(arr, predicate) {
+    // Partition array by predicate
+    let truthy = [];
+    let falsy = [];
+    let i = 0;
+    
+    while (i < arr_length(arr)) {
+        if (predicate(arr[i])) {
+            arr_push(truthy, arr[i]);
+        } else {
+            arr_push(falsy, arr[i]);
+        }
+        i = i + 1;
+    }
+    
+    return [truthy, falsy];
+}
+
+fn groupBy(arr, fn) {
+    // Group array elements by function result
+    let groups = {};
+    let i = 0;
+    
+    while (i < arr_length(arr)) {
+        let key = fn(arr[i]);
+        
+        if (!obj_has(groups, key)) {
+            groups[key] = [];
+        }
+        
+        arr_push(groups[key], arr[i]);
+        i = i + 1;
+    }
+    
+    return groups;
+}
+
+fn countBy(arr, fn) {
+    // Count array elements by function result
+    let counts = {};
+    let i = 0;
+    
+    while (i < arr_length(arr)) {
+        let key = fn(arr[i]);
+        
+        if (!obj_has(counts, key)) {
+            counts[key] = 0;
+        }
+        
+        counts[key] = counts[key] + 1;
+        i = i + 1;
+    }
+    
+    return counts;
+}
+
+fn chunk(arr, size) {
+    // Split array into chunks
+    let chunks = [];
+    let i = 0;
+    
+    while (i < arr_length(arr)) {
+        let chunk = arr_slice(arr, i, i + size);
+        arr_push(chunks, chunk);
+        i = i + size;
+    }
+    
+    return chunks;
+}
+
+fn zip(arr1, arr2) {
+    // Zip two arrays
+    let result = [];
+    let len = min(arr_length(arr1), arr_length(arr2));
+    let i = 0;
+    
+    while (i < len) {
+        arr_push(result, [arr1[i], arr2[i]]);
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+fn unzip(arr) {
+    // Unzip array of pairs
+    let arr1 = [];
+    let arr2 = [];
+    let i = 0;
+    
+    while (i < arr_length(arr)) {
+        arr_push(arr1, arr[i][0]);
+        arr_push(arr2, arr[i][1]);
+        i = i + 1;
+    }
+    
+    return [arr1, arr2];
+}
+
+fn take(arr, n) {
+    // Take first n elements
+    return arr_slice(arr, 0, n);
+}
+
+fn drop(arr, n) {
+    // Drop first n elements
+    return arr_slice(arr, n, arr_length(arr));
+}
+
+fn takeWhile(arr, predicate) {
+    // Take while predicate is true
+    let result = [];
+    let i = 0;
+    
+    while (i < arr_length(arr) && predicate(arr[i])) {
+        arr_push(result, arr[i]);
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+fn dropWhile(arr, predicate) {
+    // Drop while predicate is true
+    let i = 0;
+    
+    while (i < arr_length(arr) && predicate(arr[i])) {
+        i = i + 1;
+    }
+    
+    return arr_slice(arr, i, arr_length(arr));
+}
+
+// ===== LAZY EVALUATION =====
+
+fn lazy_range(start, end) {
+    // Create lazy range iterator
+    return {
+        current: start,
+        end: end,
+        next: fn() {
+            if (this.current < this.end) {
+                let value = this.current;
+                this.current = this.current + 1;
+                return {value: value, done: false};
+            }
+            return {value: null, done: true};
+        }
+    };
+}
+
+fn lazy_map(iterator, fn) {
+    // Lazy map
+    return {
+        iterator: iterator,
+        next: fn() {
+            let item = this.iterator.next();
+            if (!item.done) {
+                return {value: fn(item.value), done: false};
+            }
+            return item;
+        }
+    };
+}
+
+fn lazy_filter(iterator, predicate) {
+    // Lazy filter
+    return {
+        iterator: iterator,
+        next: fn() {
+            while (true) {
+                let item = this.iterator.next();
+                if (item.done) {
+                    return item;
+                }
+                if (predicate(item.value)) {
+                    return item;
+                }
+            }
+        }
+    };
+}
+
+fn lazy_take(iterator, n) {
+    // Lazy take
+    return {
+        iterator: iterator,
+        count: 0,
+        max: n,
+        next: fn() {
+            if (this.count < this.max) {
+                this.count = this.count + 1;
+                return this.iterator.next();
+            }
+            return {value: null, done: true};
+        }
+    };
+}
+
+fn lazy_toArray(iterator) {
+    // Convert lazy iterator to array
+    let result = [];
+    
+    while (true) {
+        let item = iterator.next();
+        if (item.done) {
+            break;
+        }
+        arr_push(result, item.value);
+    }
+    
+    return result;
+}
