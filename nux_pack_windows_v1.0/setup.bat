@@ -6,6 +6,29 @@ setlocal enabledelayedexpansion
 set VERSION=1.0.0
 set INSTALL_DIR=%ProgramFiles%\Nux
 set USER_DIR=%USERPROFILE%\.nux
+set REPO_URL=https://github.com/Nux-Lang/Nux_Windows.git
+
+:: Detect if running remotely (no local lib folder)
+if not exist "%~dp0..\lib" (
+    echo Remote installation detected...
+    where git >nul 2>nul
+    if %errorlevel% neq 0 (
+        echo Error: git is required for remote installation.
+        exit /b 1
+    )
+
+    set "TEMP_DIR=%TEMP%\nux_install_%RANDOM%"
+    mkdir "%TEMP_DIR%"
+    echo Cloning repository to %TEMP_DIR%...
+    git clone --depth 1 "%REPO_URL%" "%TEMP_DIR%"
+    
+    echo Running installer from temporary directory...
+    call "%TEMP_DIR%\nux_pack_windows_v1.0\setup.bat" %*
+    
+    :: Cleanup
+    rmdir /s /q "%TEMP_DIR%"
+    exit /b %errorlevel%
+)
 
 :: Enable ANSI colors on Windows 10+
 for /f "tokens=3" %%v in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v CurrentBuildNumber 2^>nul') do set BUILD=%%v
